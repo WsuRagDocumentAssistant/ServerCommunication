@@ -71,7 +71,7 @@ class Config:
 def load_config() -> Config:
     load_dotenv(_ROOT / ".env")
 
-    with open(_ROOT / "config.json", encoding="utf-8") as f:
+    with open(_ROOT / "config.json", encoding="utf-8-sig") as f:
         raw = json.load(f)
 
     s = raw["server"]
