@@ -1,4 +1,4 @@
-"""
+﻿"""
 ai_service.py
 AI 서비스 - Claude / GPT / Gemini 구현체 + 팩토리
 """
@@ -13,17 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 class ClaudeClient(BaseAIService):
-    DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, default_model: str):
         try:
             import anthropic
             self._client = anthropic.AsyncAnthropic(api_key=api_key)
+            self._default_model = default_model
         except ImportError:
             raise RuntimeError("anthropic 패키지가 설치되지 않았습니다.")
 
     def default_model(self) -> str:
-        return self.DEFAULT_MODEL
+        return self._default_model
 
     async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
         _model = model or self.default_model()
@@ -44,17 +44,17 @@ class ClaudeClient(BaseAIService):
 
 
 class GPTClient(BaseAIService):
-    DEFAULT_MODEL = "gpt-4o"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, default_model: str):
         try:
             from openai import AsyncOpenAI
             self._client = AsyncOpenAI(api_key=api_key)
+            self._default_model = default_model
         except ImportError:
             raise RuntimeError("openai 패키지가 설치되지 않았습니다.")
 
     def default_model(self) -> str:
-        return self.DEFAULT_MODEL
+        return self._default_model
 
     async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
         _model = model or self.default_model()
@@ -78,18 +78,18 @@ class GPTClient(BaseAIService):
 
 
 class GeminiClient(BaseAIService):
-    DEFAULT_MODEL = "gemini-1.5-pro"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, default_model: str):
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
             self._genai = genai
+            self._default_model = default_model
         except ImportError:
             raise RuntimeError("google-generativeai 패키지가 설치되지 않았습니다.")
 
     def default_model(self) -> str:
-        return self.DEFAULT_MODEL
+        return self._default_model
 
     async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
         import asyncio
@@ -110,9 +110,9 @@ class GeminiClient(BaseAIService):
 
 
 class AIService:
-    def __init__(self, settings):
+    def __init__(self, config):
         self._clients: dict[AIProvider, BaseAIService] = {}
-        self._settings = settings
+        self._config = config
 
     def get(self, provider: AIProvider) -> BaseAIService:
         if provider not in self._clients:
@@ -120,10 +120,11 @@ class AIService:
         return self._clients[provider]
 
     def _build(self, provider: AIProvider) -> BaseAIService:
+        models = self._config.default_models
         if provider == AIProvider.CLAUDE:
-            return ClaudeClient(api_key=self._settings.claude_api_key)
+            return ClaudeClient(api_key=self._config.claude_api_key, default_model=models["claude"])
         elif provider == AIProvider.GPT:
-            return GPTClient(api_key=self._settings.openai_api_key)
+            return GPTClient(api_key=self._config.openai_api_key, default_model=models["gpt"])
         elif provider == AIProvider.GEMINI:
-            return GeminiClient(api_key=self._settings.gemini_api_key)
+            return GeminiClient(api_key=self._config.gemini_api_key, default_model=models["gemini"])
         raise ValueError(f"지원하지 않는 공급자: {provider}")

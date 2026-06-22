@@ -1,11 +1,6 @@
-"""
+﻿"""
 server_starter.py
 서버 진입점
-- Settings 로드
-- setup_logging 1회 호출
-- Controller 생성
-- App에 Controller 주입
-- Uvicorn 실행
 """
 
 import asyncio
@@ -14,26 +9,29 @@ import signal
 
 import uvicorn
 
-from core import Settings, Controller, create_app
-from utils import setup_logging
+from core import Controller, create_app
+from utils import load_config, setup_logging
 
 logger = logging.getLogger(__name__)
 
 
-async def run_server(settings: Settings) -> None:
-    controller = Controller(settings=settings)
+async def run_server() -> None:
+    config = load_config()
+    setup_logging(config.server.log_level)
+
+    controller = Controller(config=config)
     app = create_app(controller=controller)
 
-    config = uvicorn.Config(
+    uv_config = uvicorn.Config(
         app=app,
-        host=settings.host,
-        port=settings.port,
-        log_level=settings.log_level.lower(),
+        host=config.server.host,
+        port=config.server.port,
+        log_level=config.server.log_level.lower(),
         loop="asyncio",
         ws="websockets",
         log_config=None,
     )
-    server = uvicorn.Server(config)
+    server = uvicorn.Server(uv_config)
 
     loop = asyncio.get_running_loop()
 
@@ -50,12 +48,5 @@ async def run_server(settings: Settings) -> None:
     await server.serve()
 
 
-def main() -> None:
-    settings = Settings()
-    setup_logging(settings.log_level)
-    logger.info(f"서버 설정: host={settings.host}, port={settings.port}")
-    asyncio.run(run_server(settings))
-
-
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_server())

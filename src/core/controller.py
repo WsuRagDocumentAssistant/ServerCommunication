@@ -1,4 +1,4 @@
-"""
+﻿"""
 controller.py
 중앙 컨트롤러 - Node.js ControlManager 구조 기반
 - 인프라 계층 초기화 (DB, LLM)
@@ -13,26 +13,14 @@ from typing import Optional
 
 from database import DatabaseService
 from services import AIService, LLMService, UserService
-from utils import Settings
+from utils import load_config, Config
 
 logger = logging.getLogger(__name__)
 
 
 class Controller:
-    """
-    중앙 컨트롤러.
-
-    init 순서:
-        1. _init_infra()          → DB, LLM (인프라 계층)
-        2. _init_services()       → AI, User/SSO (서비스 계층)
-        3. _inject_dependencies() → 서비스 간 의존성 주입
-
-    shutdown 순서 (역순):
-        서비스 → 인프라
-    """
-
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, config: Config):
+        self.config = config
         self.is_active = False
 
         # ── 인프라 계층 ────────────────────────
@@ -66,19 +54,19 @@ class Controller:
         logger.info("=" * 50)
 
     async def _init_infra(self) -> None:
-        """인프라 계층 초기화 - DB, LLM 소켓"""
         logger.info("[Controller] 인프라 계층 초기화 중...")
+        db = self.config.database
 
         self.db = DatabaseService(
-            host=self.settings.db_host,
-            port=self.settings.db_port,
-            user=self.settings.db_user,
-            password=self.settings.db_password,
-            database=self.settings.db_name,
-            min_size=self.settings.db_pool_min,
-            max_size=self.settings.db_pool_max,
+            host=db.host,
+            port=db.port,
+            user=db.user,
+            password=db.password,
+            database=db.name,
+            min_size=db.pool_min,
+            max_size=db.pool_max,
         )
-        if self.settings.db_auto_connect:
+        if db.auto_connect:
             try:
                 await self.db.init()
             except Exception as e:
@@ -86,12 +74,9 @@ class Controller:
         else:
             logger.info("[Controller] DB auto_connect=false, 연결 건너뜀")
 
-        self.llm = LLMService(
-            host=self.settings.llm_host,
-            port=self.settings.llm_port,
-            timeout=self.settings.llm_timeout,
-        )
-        if self.settings.llm_auto_connect:
+        llm = self.config.llm
+        self.llm = LLMService(host=llm.host, port=llm.port, timeout=llm.timeout)
+        if llm.auto_connect:
             try:
                 await self.llm.connect()
             except Exception as e:
@@ -100,23 +85,22 @@ class Controller:
         logger.info("[Controller] 인프라 계층 초기화 완료")
 
     async def _init_services(self) -> None:
-        """서비스 계층 초기화 - AI, User/SSO"""
         logger.info("[Controller] 서비스 계층 초기화 중...")
+        sso = self.config.sso
 
-        self.ai = AIService(settings=self.settings)
+        self.ai = AIService(config=self.config.ai)
 
         self.user = UserService(
-            issuer_url=self.settings.sso_issuer_url,
-            client_id=self.settings.sso_client_id,
-            client_secret=self.settings.sso_client_secret,
-            algorithm=self.settings.sso_algorithm,
+            issuer_url=sso.issuer_url,
+            client_id=sso.client_id,
+            client_secret=sso.client_secret,
+            algorithm=sso.algorithm,
         )
         await self.user.init()
 
         logger.info("[Controller] 서비스 계층 초기화 완료")
 
     def _inject_dependencies(self) -> None:
-        """서비스 간 의존성 주입"""
         logger.info("[Controller] 의존성 주입 중...")
         # 예: AI 서비스에 DB 주입 (향후 RAG 구현 시)
         # self.ai.set_db(self.db)
@@ -132,7 +116,6 @@ class Controller:
         logger.info(f"[Controller] 백그라운드 태스크 {len(self.background_tasks)}개 시작")
 
     async def _health_monitor(self) -> None:
-        """60초마다 LLM 소켓 상태 확인 및 자동 재연결"""
         while not self.shutdown_event.is_set():
             try:
                 await asyncio.wait_for(self.shutdown_event.wait(), timeout=60.0)

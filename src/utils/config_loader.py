@@ -1,0 +1,116 @@
+﻿"""
+config_loader.py
+config.json + .env 를 읽어 Config 객체로 반환
+
+- config.json : 비밀이 아닌 설정 (포트, 풀 크기, 모델명 등)
+- .env        : 시크릿 (API 키, DB 비밀번호 등)
+"""
+
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass
+class ServerConfig:
+    host: str
+    port: int
+    log_level: str
+
+
+@dataclass
+class DatabaseConfig:
+    host: str
+    port: int
+    name: str
+    user: str
+    password: str
+    pool_min: int
+    pool_max: int
+    auto_connect: bool
+
+
+@dataclass
+class LLMConfig:
+    host: str
+    port: int
+    timeout: float
+    auto_connect: bool
+
+
+@dataclass
+class AIConfig:
+    claude_api_key: str
+    openai_api_key: str
+    gemini_api_key: str
+    default_models: dict
+
+
+@dataclass
+class SSOConfig:
+    issuer_url: str
+    client_id: str
+    client_secret: str
+    algorithm: str
+
+
+@dataclass
+class Config:
+    server: ServerConfig
+    database: DatabaseConfig
+    llm: LLMConfig
+    ai: AIConfig
+    sso: SSOConfig
+
+
+def load_config() -> Config:
+    load_dotenv(_ROOT / ".env")
+
+    with open(_ROOT / "config.json", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    s = raw["server"]
+    db = raw["database"]
+    llm = raw["llm"]
+    ai = raw["ai"]
+
+    return Config(
+        server=ServerConfig(
+            host=s["host"],
+            port=s["port"],
+            log_level=s["log_level"],
+        ),
+        database=DatabaseConfig(
+            host=db["host"],
+            port=db["port"],
+            name=db["name"],
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"],
+            pool_min=db["pool_min"],
+            pool_max=db["pool_max"],
+            auto_connect=db["auto_connect"],
+        ),
+        llm=LLMConfig(
+            host=llm["host"],
+            port=llm["port"],
+            timeout=llm["timeout"],
+            auto_connect=llm["auto_connect"],
+        ),
+        ai=AIConfig(
+            claude_api_key=os.environ.get("CLAUDE_API_KEY", ""),
+            openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
+            gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
+            default_models=ai["default_models"],
+        ),
+        sso=SSOConfig(
+            issuer_url=os.environ.get("SSO_ISSUER_URL", ""),
+            client_id=os.environ.get("SSO_CLIENT_ID", ""),
+            client_secret=os.environ.get("SSO_CLIENT_SECRET", ""),
+            algorithm=os.environ.get("SSO_ALGORITHM", "RS256"),
+        ),
+    )
