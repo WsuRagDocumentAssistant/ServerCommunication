@@ -1,6 +1,6 @@
 """
 user_router.py
-WebSocket 연결 풀 관리 - 클래스 기반
+WebSocket 연결 풀 관리 및 라우터 - 클래스 기반
 """
 
 import asyncio
@@ -60,3 +60,16 @@ class ConnectionManager:
 
 # 싱글톤 - app.py에서 WebSocket 종료 시 사용
 ws_manager = ConnectionManager()
+
+
+class UserRouter:
+    def __init__(self, controller):
+        self.controller = controller
+        self.router = APIRouter(tags=["WebSocket"])
+        self._setup_routes()
+
+    def _setup_routes(self):
+        self.router.websocket("/ws/{client_id}")(self._websocket_endpoint)
+
+    async def _websocket_endpoint(self, websocket: WebSocket, client_id: str):
+        await self.controller.handle_websocket(websocket, client_id)
