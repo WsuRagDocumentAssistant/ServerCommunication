@@ -11,18 +11,18 @@
     "auto_connect": false
   },
   "database": {
-    "host": "localhost",
+    "host": "/tmp",
     "port": 5432,
-    "name": "rag_db",
+    "name": "ragdb",
     "pool_min": 2,
     "pool_max": 10,
-    "auto_connect": false
+    "auto_connect": true
   },
   "ai": {
     "default_models": {
-      "claude": "claude-3-5-sonnet-20241022",
-      "gpt": "gpt-4o",
-      "gemini": "gemini-1.5-pro"
+      "claude": "claude-sonnet-4-6",
+      "gpt": "gpt-5.5",
+      "gemini": "gemini-3.5-flash"
     }
   }
 }
