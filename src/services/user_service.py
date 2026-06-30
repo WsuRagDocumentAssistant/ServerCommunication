@@ -3,7 +3,6 @@ user_service.py
 SSO 인증 서비스
 - JWT 토큰 검증 (RS256/HS256)
 - 사용자 정보 추출
-- WebSocket 연결 인증
 """
 
 import logging
@@ -110,11 +109,6 @@ class UserService:
             "name": payload.get("name"),
             "roles": payload.get("roles", []),
         }
-
-    async def on_message(self, client_id: str, message: str) -> str:
-        """WebSocket 메시지 처리 (확장용)"""
-        logger.debug(f"[UserService] 메시지: {client_id} → {message}")
-        return message
 
     async def close(self) -> None:
         self._jwks = None

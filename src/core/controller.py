@@ -4,7 +4,6 @@ controller.py
 - 인프라 계층 초기화 (DB, LLM)
 - 서비스 계층 초기화 (AI, User/SSO)
 - 서비스 간 의존성 주입
-- WebSocket 연결 직접 처리
 """
 
 import asyncio
@@ -130,40 +129,6 @@ class Controller:
                     logger.info("[Controller] LLM 재연결 성공")
                 except Exception as e:
                     logger.error(f"[Controller] LLM 재연결 실패: {e}")
-
-    # ─────────────────────────────────────────
-    # WebSocket 연결 처리
-    # ─────────────────────────────────────────
-    async def handle_websocket(self, websocket, client_id: str) -> None:
-        client_ip = websocket.client.host if hasattr(websocket, "client") else "unknown"
-        logger.info(f"[Controller] WebSocket 연결: {client_ip} → {client_id}")
-
-        try:
-            token = websocket.query_params.get("token", "")
-            is_valid = await self.user.validate_token(token)
-            if not is_valid:
-                await websocket.close(code=4001, reason="Unauthorized")
-                logger.warning(f"[Controller] WebSocket 인증 실패: {client_id}")
-                return
-
-            await websocket.accept()
-            logger.info(f"[Controller] WebSocket 인증 성공: {client_id}")
-
-            from fastapi import WebSocketDisconnect
-            try:
-                while True:
-                    data = await websocket.receive_text()
-                    processed = await self.user.on_message(client_id, data)
-                    await websocket.send_text(f"[ACK] {processed}")
-            except WebSocketDisconnect:
-                logger.info(f"[Controller] WebSocket 연결 종료: {client_id}")
-
-        except Exception as e:
-            logger.error(f"[Controller] WebSocket 오류 {client_id}: {e}")
-            try:
-                await websocket.close(code=1011, reason="Server Error")
-            except Exception:
-                pass
 
     # ─────────────────────────────────────────
     # 서비스 노출

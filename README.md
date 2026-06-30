@@ -1,6 +1,6 @@
 # AI RAG System
 
-멀티 AI 프로바이더 + 로컬 LLM + WebSocket + PostgreSQL 기반의 RAG 게이트웨이 서버
+멀티 AI 프로바이더 + 로컬 LLM + PostgreSQL 기반의 RAG 게이트웨이 서버
 
 ---
 
@@ -10,9 +10,9 @@
 - **Framework**: FastAPI + Uvicorn
 - **Database**: PostgreSQL 17 + pgvector (asyncpg)
 - **AI Providers**: Claude (Anthropic) / GPT (OpenAI) / Gemini (Google)
-- **Local LLM**: Ollama (TCP Socket)
-- **Auth**: JWT (RS256 / HS256)
-- **Protocol**: HTTP REST + WebSocket
+- **Local LLM**: TCP Socket 통신 (같은 K8s 네임스페이스 내 Pod)
+- **Auth**: JWT (RS256 / HS256) - FastAPI Depends
+- **Protocol**: HTTP REST
 
 ---
 
@@ -30,19 +30,18 @@ ai_rag_system/
     │   ├── app.py           # FastAPI 앱 초기화
     │   ├── controller.py    # 인프라 / 서비스 생명주기 관리
     │   └── routers/
-    │       ├── api_router.py    # /ai/*
-    │       ├── llm_router.py   # /llm/*
-    │       ├── user_router.py  # /ws/*
-    │       └── health_router.py # /health
+    │       ├── health_router.py  # /health
+    │       └── file_router.py   # /file/*
     ├── services/
-    │   ├── ai_service.py    # Claude / GPT / Gemini 클라이언트
-    │   ├── llm_service.py   # 로컬 LLM 소켓 통신
+    │   ├── ai_service.py    # Claude / GPT / Gemini 클라이언트 (내부 호출)
+    │   ├── llm_service.py   # 로컬 LLM TCP 소켓 통신 (내부 호출)
     │   └── user_service.py  # SSO 토큰 검증
     ├── database/
     │   └── database_service.py  # PostgreSQL 커넥션 풀
     ├── interfaces/          # 추상 인터페이스
     ├── schemas/             # Pydantic 요청/응답 모델
     └── utils/
+        ├── auth_helper.py   # verify_token Depends
         ├── config_loader.py
         ├── log_helper.py
         └── response_helper.py
@@ -55,13 +54,9 @@ ai_rag_system/
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/health` | 서버 상태 확인 |
-| POST | `/ai/chat` | 외부 AI 채팅 |
-| POST | `/ai/chat/stream` | 외부 AI 스트리밍 채팅 |
-| GET | `/ai/providers` | 사용 가능한 AI 프로바이더 목록 |
-| POST | `/llm/infer` | 로컬 LLM 추론 |
-| POST | `/llm/infer/stream` | 로컬 LLM 스트리밍 추론 |
-| GET | `/llm/status` | 로컬 LLM 연결 상태 |
-| WS | `/ws/{client_id}` | WebSocket 연결 |
+| POST | `/file/upload` | hwpx 파일 업로드 |
+
+> AI / LLM 호출은 클라이언트에 직접 노출하지 않고 서비스 레이어에서 내부적으로 처리
 
 ---
 
@@ -140,32 +135,33 @@ psql -h /tmp -U raguser -d ragdb
 ## 아키텍처
 
 ```
-Client (HTTP / WebSocket)
-        │
-   ┌────▼─────────────────────────────┐
-   │  FastAPI (app.py)                │
-   │  CORS / Request Logging          │
-   └────┬─────────────────────────────┘
-        │
-   ┌────▼─────────────────────────────┐
-   │  Controller                      │
-   │  인프라 / 서비스 생명주기 관리    │
-   └────┬──────────────┬──────────────┘
-        │              │
-   ┌────▼────┐   ┌─────▼──────┐
-   │AIService│   │ LLMService │
-   │Claude   │   │ Ollama     │
-   │GPT      │   │ TCP Socket │
-   │Gemini   │   └────────────┘
-   └────┬────┘
-        │
-   ┌────▼──────────────┐
-   │ External AI APIs  │
-   └───────────────────┘
+Client (HTTP)
+      │
+ ┌────▼──────────────────────────────┐
+ │  FastAPI (app.py)                 │
+ │  CORS / Request Logging           │
+ │  SSO 토큰 검증 (verify_token)     │
+ └────┬──────────────────────────────┘
+      │
+ ┌────▼──────────────────────────────┐
+ │  Controller                       │
+ │  인프라 / 서비스 생명주기 관리     │
+ └────┬──────────────┬───────────────┘
+      │              │
+ ┌────▼────┐   ┌─────▼──────────────┐
+ │AIService│   │ LLMService         │
+ │Claude   │   │ 로컬 LLM Pod       │
+ │GPT      │   │ TCP Socket         │
+ │Gemini   │   └────────────────────┘
+ └────┬────┘
+      │
+ ┌────▼──────────────┐
+ │ External AI APIs  │
+ └───────────────────┘
 
-   ┌──────────────────────────┐
-   │ DatabaseService          │
-   │ PostgreSQL 17 + pgvector │
-   │ Unix Socket /tmp         │
-   └──────────────────────────┘
+ ┌──────────────────────────┐
+ │ DatabaseService          │
+ │ PostgreSQL 17 + pgvector │
+ │ Unix Socket /tmp         │
+ └──────────────────────────┘
 ```
