@@ -7,16 +7,25 @@ log_helper.py
 
 import logging
 import sys
+from datetime import datetime, timezone, timedelta
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)-30s | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+KST = timezone(timedelta(hours=9))
+
+
+class KSTFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=KST)
+        return dt.strftime(datefmt or DATE_FORMAT)
 
 
 def setup_logging(level: str = "INFO") -> None:
     """server_starter.py에서 1회만 호출"""
     numeric_level = getattr(logging, level.upper(), logging.INFO)
 
-    formatter = logging.Formatter(fmt=LOG_FORMAT, datefmt=DATE_FORMAT)
+    formatter = KSTFormatter(fmt=LOG_FORMAT, datefmt=DATE_FORMAT)
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
 
