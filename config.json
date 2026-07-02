@@ -5,8 +5,8 @@
     "log_level": "INFO"
   },
   "llm": {
-    "host": "127.0.0.1",
-    "port": 11434,
+    "host": "10.101.96.71",
+    "port": 8001,
     "timeout": 30.0,
     "auto_connect": false
   },
