@@ -60,12 +60,20 @@ class SSOConfig:
 
 
 @dataclass
+class AuthConfig:
+    jwt_secret: str
+    jwt_algorithm: str
+    jwt_expire_minutes: int
+
+
+@dataclass
 class Config:
     server: ServerConfig
     database: DatabaseConfig
     llm: LLMConfig
     ai: AIConfig
     sso: SSOConfig
+    auth: AuthConfig
 
 
 def load_config() -> Config:
@@ -112,5 +120,10 @@ def load_config() -> Config:
             client_id=os.environ.get("SSO_CLIENT_ID", ""),
             client_secret=os.environ.get("SSO_CLIENT_SECRET", ""),
             algorithm=os.environ.get("SSO_ALGORITHM", "RS256"),
+        ),
+        auth=AuthConfig(
+            jwt_secret=os.environ["JWT_SECRET_KEY"],
+            jwt_algorithm=os.environ.get("JWT_ALGORITHM", "HS256"),
+            jwt_expire_minutes=int(os.environ.get("JWT_EXPIRE_MINUTES", "1440")),
         ),
     )

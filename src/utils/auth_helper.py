@@ -1,6 +1,6 @@
 """
-auth.py
-SSO 토큰 검증 FastAPI Depends
+auth_helper.py
+자체 발급 액세스 토큰(JWT) 검증 FastAPI Depends
 """
 
 import logging
@@ -17,10 +17,13 @@ async def verify_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
-    user_service = request.app.state.user_service
+    auth_service = request.app.state.auth_service
     token = credentials.credentials if credentials else ""
 
-    if not await user_service.validate_token(token):
+    if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    return await user_service.get_user_info(token)
+    try:
+        return auth_service.decode_access_token(token)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Unauthorized")

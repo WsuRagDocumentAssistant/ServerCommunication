@@ -2,7 +2,7 @@
 controller.py
 중앙 컨트롤러 - Node.js ControlManager 구조 기반
 - 인프라 계층 초기화 (DB, LLM)
-- 서비스 계층 초기화 (AI, User/SSO)
+- 서비스 계층 초기화 (AI, SSO, Auth)
 - 서비스 간 의존성 주입
 """
 
@@ -11,7 +11,7 @@ import logging
 from typing import Optional
 
 from database import DatabaseService
-from services import AIService, LLMService, UserService
+from services import AIService, LLMService, SSOService, AuthService
 from utils import load_config, Config
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,8 @@ class Controller:
 
         # ── 서비스 계층 ────────────────────────
         self.ai: Optional[AIService] = None
-        self.user: Optional[UserService] = None
+        self.sso: Optional[SSOService] = None
+        self.auth: Optional[AuthService] = None
 
         # ── 백그라운드 태스크 ───────────────────
         self.background_tasks: list[asyncio.Task] = []
@@ -89,13 +90,21 @@ class Controller:
 
         self.ai = AIService(config=self.config.ai)
 
-        self.user = UserService(
+        self.sso = SSOService(
             issuer_url=sso.issuer_url,
             client_id=sso.client_id,
             client_secret=sso.client_secret,
             algorithm=sso.algorithm,
         )
-        await self.user.init()
+        await self.sso.init()
+
+        auth = self.config.auth
+        self.auth = AuthService(
+            sso_service=self.sso,
+            jwt_secret=auth.jwt_secret,
+            jwt_algorithm=auth.jwt_algorithm,
+            jwt_expire_minutes=auth.jwt_expire_minutes,
+        )
 
         logger.info("[Controller] 서비스 계층 초기화 완료")
 
@@ -138,7 +147,8 @@ class Controller:
             "ai": self.ai,
             "llm": self.llm,
             "db": self.db,
-            "user": self.user,
+            "sso": self.sso,
+            "auth": self.auth,
         }
 
     # ─────────────────────────────────────────
@@ -158,8 +168,8 @@ class Controller:
             await asyncio.gather(*self.background_tasks, return_exceptions=True)
         logger.info("[Controller] 백그라운드 태스크 종료")
 
-        if self.user:
-            await self.user.close()
+        if self.sso:
+            await self.sso.close()
         if self.llm:
             await self.llm.disconnect()
         if self.db:

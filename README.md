@@ -31,17 +31,19 @@ ai_rag_system/
     │   ├── controller.py    # 인프라 / 서비스 생명주기 관리
     │   └── routers/
     │       ├── health_router.py  # /health
-    │       └── file_router.py   # /file/*
+    │       ├── file_router.py   # /file/*
+    │       └── auth_router.py   # /users/*
     ├── services/
     │   ├── ai_service.py    # Claude / GPT / Gemini 클라이언트 (내부 호출)
     │   ├── llm_service.py   # 로컬 LLM TCP 소켓 통신 (내부 호출)
-    │   └── user_service.py  # SSO 토큰 검증
+    │   ├── sso_service.py   # SSO 토큰 검증 (외부 SSO 발급 토큰)
+    │   └── auth_service.py  # 로그인 / 회원가입 / 자체 JWT 발급·검증 (인메모리)
     ├── database/
     │   └── database_service.py  # PostgreSQL 커넥션 풀
     ├── interfaces/          # 추상 인터페이스
     ├── schemas/             # Pydantic 요청/응답 모델
     └── utils/
-        ├── auth_helper.py   # verify_token Depends
+        ├── auth_helper.py   # verify_token Depends (자체 JWT 검증)
         ├── config_loader.py
         ├── log_helper.py
         └── response_helper.py
@@ -55,8 +57,14 @@ ai_rag_system/
 |--------|------|------|
 | GET | `/health` | 서버 상태 확인 |
 | POST | `/file/upload` | hwpx 파일 업로드 |
+| POST | `/users/login` | 로컬 로그인 (이메일/비밀번호) |
+| POST | `/users/create/user` | 회원가입 |
+| POST | `/users/logout` | 로그아웃 (Bearer 토큰 필요) |
+| POST | `/users/sso/login` | SSO 로그인 (SSO 토큰 → 자체 JWT 발급) |
 
 > AI / LLM 호출은 클라이언트에 직접 노출하지 않고 서비스 레이어에서 내부적으로 처리
+> `/users/*` 는 로그인/SSO 로그인 성공 시 자체 서명 JWT를 발급하며, 이후 인증이 필요한 요청은 `Authorization: Bearer <token>` 헤더 사용
+> 사용자 정보 및 활성 토큰은 서버 메모리에 저장되며, 서버 재시작 시 초기화됨 (영구 저장소 미적용)
 
 ---
 
@@ -95,6 +103,10 @@ GEMINI_API_KEY=...
 
 DB_USER=raguser
 DB_PASSWORD=...
+
+JWT_SECRET_KEY=...
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_MINUTES=1440
 ```
 
 ---
@@ -204,7 +216,7 @@ Client (HTTP)
  ┌────▼──────────────────────────────┐
  │  FastAPI (app.py)                 │
  │  CORS / Request Logging           │
- │  SSO 토큰 검증 (verify_token)     │
+ │  자체 JWT 검증 (verify_token)     │
  └────┬──────────────────────────────┘
       │
  ┌────▼──────────────────────────────┐

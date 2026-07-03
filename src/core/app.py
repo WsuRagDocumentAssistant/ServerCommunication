@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from utils.response_helper import fail
-from core.routers import HealthRouter, FileRouter
+from core.routers import HealthRouter, FileRouter, AuthRouter
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +63,11 @@ class App:
     def _init_routes(self) -> None:
         """controller.init() 완료 후 서비스를 꺼내 라우터에 주입"""
         services = self.controller.get_services()
-        self.fastapi_app.state.user_service = services["user"]
+        self.fastapi_app.state.auth_service = services["auth"]
 
         self.fastapi_app.include_router(HealthRouter().router)
         self.fastapi_app.include_router(FileRouter().router)
+        self.fastapi_app.include_router(AuthRouter(service=services["auth"]).router)
 
         logger.info("[App] 라우터 등록 완료")
 
