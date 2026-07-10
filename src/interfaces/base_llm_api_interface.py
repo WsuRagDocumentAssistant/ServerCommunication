@@ -1,6 +1,6 @@
 """
-base_ai_interface.py
-AI 서비스 추상 인터페이스
+base_llm_api_interface.py
+외부 LLM API(Claude/GPT/Gemini) 서비스 추상 인터페이스
 """
 
 from abc import ABC, abstractmethod
@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Optional
 from schemas import ChatResponse
 
 
-class BaseAIInterface(ABC):
+class BaseLLMApiInterface(ABC):
 
     @abstractmethod
     def default_model(self) -> str: ...

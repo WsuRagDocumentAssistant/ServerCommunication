@@ -4,7 +4,7 @@
     "port": 8000,
     "log_level": "INFO"
   },
-  "llm": {
+  "local_llm": {
     "host": "10.101.96.71",
     "port": 8001,
     "timeout": 30.0,
@@ -18,7 +18,7 @@
     "pool_max": 10,
     "auto_connect": true
   },
-  "ai": {
+  "llm_api": {
     "default_models": {
       "claude": "claude-sonnet-4-6",
       "gpt": "gpt-5.5",

@@ -5,11 +5,11 @@ GPT(OpenAI) API 클라이언트
 
 from typing import AsyncGenerator, Optional
 
-from interfaces import BaseAIInterface
+from interfaces import BaseLLMApiInterface
 from schemas import AIProvider, ChatResponse
 
 
-class OpenAIService(BaseAIInterface):
+class OpenAIService(BaseLLMApiInterface):
 
     def __init__(self, api_key: str, default_model: str):
         try:

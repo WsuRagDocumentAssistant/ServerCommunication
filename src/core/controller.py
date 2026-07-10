@@ -1,6 +1,5 @@
 ﻿"""
 controller.py
-중앙 컨트롤러 - Node.js ControlManager 구조 기반
 - 인프라 계층 초기화 (DB, LLM)
 - 서비스 계층 초기화 (AI, SSO, Auth)
 - 서비스 간 의존성 주입
@@ -11,7 +10,7 @@ import logging
 from typing import Optional
 
 from database import DatabaseService
-from services import AIService, LLMService, SSOService, AuthService
+from services import LLMApiService, LocalLLMService, SSOService, AuthService
 from utils import load_config, Config
 
 logger = logging.getLogger(__name__)
@@ -24,10 +23,10 @@ class Controller:
 
         # ── 인프라 계층 ────────────────────────
         self.db: Optional[DatabaseService] = None
-        self.llm: Optional[LLMService] = None
+        self.llm: Optional[LocalLLMService] = None
 
         # ── 서비스 계층 ────────────────────────
-        self.ai: Optional[AIService] = None
+        self.ai: Optional[LLMApiService] = None
         self.sso: Optional[SSOService] = None
         self.auth: Optional[AuthService] = None
 
@@ -74,8 +73,8 @@ class Controller:
         else:
             logger.info("[Controller] DB auto_connect=false, 연결 건너뜀")
 
-        llm = self.config.llm
-        self.llm = LLMService(host=llm.host, port=llm.port, timeout=llm.timeout)
+        llm = self.config.local_llm
+        self.llm = LocalLLMService(host=llm.host, port=llm.port, timeout=llm.timeout)
         if llm.auto_connect:
             try:
                 await self.llm.connect()
@@ -88,7 +87,7 @@ class Controller:
         logger.info("[Controller] 서비스 계층 초기화 중...")
         sso = self.config.sso
 
-        self.ai = AIService(config=self.config.ai)
+        self.ai = LLMApiService(config=self.config.llm_api)
 
         self.sso = SSOService(
             issuer_url=sso.issuer_url,

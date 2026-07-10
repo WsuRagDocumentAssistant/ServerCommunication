@@ -6,11 +6,11 @@ Gemini(Google) API 클라이언트
 import asyncio
 from typing import AsyncGenerator, Optional
 
-from interfaces import BaseAIInterface
+from interfaces import BaseLLMApiInterface
 from schemas import AIProvider, ChatResponse
 
 
-class GeminiService(BaseAIInterface):
+class GeminiService(BaseLLMApiInterface):
 
     def __init__(self, api_key: str, default_model: str):
         try:

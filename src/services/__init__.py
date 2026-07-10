@@ -1,12 +1,12 @@
-from .ai_service import AIService
+from .llm_api_service import LLMApiService
 from .llm_api import ClaudeService, OpenAIService, GeminiService
-from .llm_service import LLMService
+from .local_llm_service import LocalLLMService
 from .sso_service import SSOService
 from .auth_service import AuthService
 
 __all__ = [
-    "AIService", "ClaudeService", "OpenAIService", "GeminiService",
-    "LLMService",
+    "LLMApiService", "ClaudeService", "OpenAIService", "GeminiService",
+    "LocalLLMService",
     "SSOService",
     "AuthService",
 ]

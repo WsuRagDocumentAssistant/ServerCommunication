@@ -1,4 +1,4 @@
-﻿"""
+"""
 config_loader.py
 config.json + .env 를 읽어 Config 객체로 반환
 
@@ -36,7 +36,7 @@ class DatabaseConfig:
 
 
 @dataclass
-class LLMConfig:
+class LocalLLMConfig:
     host: str
     port: int
     timeout: float
@@ -44,7 +44,7 @@ class LLMConfig:
 
 
 @dataclass
-class AIConfig:
+class LLMApiConfig:
     claude_api_key: str
     openai_api_key: str
     gemini_api_key: str
@@ -70,8 +70,8 @@ class AuthConfig:
 class Config:
     server: ServerConfig
     database: DatabaseConfig
-    llm: LLMConfig
-    ai: AIConfig
+    local_llm: LocalLLMConfig
+    llm_api: LLMApiConfig
     sso: SSOConfig
     auth: AuthConfig
 
@@ -84,8 +84,8 @@ def load_config() -> Config:
 
     s = raw["server"]
     db = raw["database"]
-    llm = raw["llm"]
-    ai = raw["ai"]
+    local_llm = raw["local_llm"]
+    llm_api = raw["llm_api"]
 
     return Config(
         server=ServerConfig(
@@ -103,17 +103,17 @@ def load_config() -> Config:
             pool_max=db["pool_max"],
             auto_connect=db["auto_connect"],
         ),
-        llm=LLMConfig(
-            host=llm["host"],
-            port=llm["port"],
-            timeout=llm["timeout"],
-            auto_connect=llm["auto_connect"],
+        local_llm=LocalLLMConfig(
+            host=local_llm["host"],
+            port=local_llm["port"],
+            timeout=local_llm["timeout"],
+            auto_connect=local_llm["auto_connect"],
         ),
-        ai=AIConfig(
+        llm_api=LLMApiConfig(
             claude_api_key=os.environ.get("CLAUDE_API_KEY", ""),
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
-            default_models=ai["default_models"],
+            default_models=llm_api["default_models"],
         ),
         sso=SSOConfig(
             issuer_url=os.environ.get("SSO_ISSUER_URL", ""),

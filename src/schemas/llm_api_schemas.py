@@ -1,6 +1,6 @@
 """
-ai_schemas.py
-외부 AI API 요청/응답 스키마
+llm_api_schemas.py
+외부 LLM API(Claude/GPT/Gemini) 요청/응답 스키마
 """
 
 from enum import Enum

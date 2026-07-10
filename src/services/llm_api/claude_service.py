@@ -5,11 +5,11 @@ Claude(Anthropic) API 클라이언트
 
 from typing import AsyncGenerator, Optional
 
-from interfaces import BaseAIInterface
+from interfaces import BaseLLMApiInterface
 from schemas import AIProvider, ChatResponse
 
 
-class ClaudeService(BaseAIInterface):
+class ClaudeService(BaseLLMApiInterface):
 
     def __init__(self, api_key: str, default_model: str):
         try:

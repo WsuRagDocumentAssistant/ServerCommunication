@@ -1,6 +1,6 @@
-from .base_ai_interface import BaseAIInterface
+from .base_llm_api_interface import BaseLLMApiInterface
 from .base_database_interface import BaseDatabaseInterface
-from .base_llm_interface import BaseLLMInterface
+from .base_local_llm_interface import BaseLocalLLMInterface
 from .base_repository_interface import BaseRepositoryInterface
 
-__all__ = ["BaseAIInterface", "BaseDatabaseInterface", "BaseLLMInterface", "BaseRepositoryInterface"]
+__all__ = ["BaseLLMApiInterface", "BaseDatabaseInterface", "BaseLocalLLMInterface", "BaseRepositoryInterface"]

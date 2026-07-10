@@ -1,5 +1,5 @@
 """
-llm_service.py
+local_llm_service.py
 로컬 LLM 소켓 서비스
 """
 
@@ -8,12 +8,12 @@ import json
 import logging
 from typing import AsyncGenerator, Optional
 
-from interfaces import BaseLLMInterface
+from interfaces import BaseLocalLLMInterface
 
 logger = logging.getLogger(__name__)
 
 
-class LLMService(BaseLLMInterface):
+class LocalLLMService(BaseLocalLLMInterface):
     def __init__(self, host: str, port: int, timeout: float = 30.0):
         self.host = host
         self.port = port

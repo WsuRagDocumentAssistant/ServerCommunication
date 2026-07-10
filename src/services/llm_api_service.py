@@ -1,6 +1,6 @@
 """
-ai_service.py
-AI 서비스 오케스트레이터
+llm_api_service.py
+외부 LLM API 서비스 오케스트레이터
 - 실제 프로바이더 구현체(Claude/OpenAI/Gemini)는 services/llm_api/ 에 분리되어 있음
 - 이 파일은 PROVIDER_REGISTRY로 프로바이더를 조회/생성하는 역할만 담당
 """
@@ -8,7 +8,7 @@ AI 서비스 오케스트레이터
 import logging
 from typing import Optional
 
-from interfaces import BaseAIInterface
+from interfaces import BaseLLMApiInterface
 from schemas import AIProvider
 from services.llm_api import ClaudeService, OpenAIService, GeminiService
 
@@ -28,9 +28,9 @@ PROVIDER_REGISTRY: dict[AIProvider, dict] = {
 }
 
 
-class AIService:
+class LLMApiService:
     def __init__(self, config):
-        self._clients: dict[tuple, BaseAIInterface] = {}
+        self._clients: dict[tuple, BaseLLMApiInterface] = {}
         self._config = config
 
     def get_llm_api(
@@ -38,7 +38,7 @@ class AIService:
         provider: AIProvider,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
-    ) -> BaseAIInterface:
+    ) -> BaseLLMApiInterface:
         """
         provider(+선택적 model/api_key 오버라이드)로 클라이언트를 조회/생성한다.
         동일 조합은 캐시된 클라이언트를 재사용한다.
@@ -48,7 +48,7 @@ class AIService:
             self._clients[cache_key] = self._build(provider, model, api_key)
         return self._clients[cache_key]
 
-    def _build(self, provider: AIProvider, model: Optional[str], api_key: Optional[str]) -> BaseAIInterface:
+    def _build(self, provider: AIProvider, model: Optional[str], api_key: Optional[str]) -> BaseLLMApiInterface:
         entry = PROVIDER_REGISTRY.get(provider)
         if not entry:
             raise ValueError(f"지원하지 않는 공급자: {provider}")
