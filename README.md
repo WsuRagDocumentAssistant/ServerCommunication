@@ -34,7 +34,11 @@ ai_rag_system/
     │       ├── file_router.py   # /file/*
     │       └── auth_router.py   # /users/*
     ├── services/
-    │   ├── ai_service.py    # Claude / GPT / Gemini 클라이언트 (내부 호출)
+    │   ├── ai_service.py    # AIService 오케스트레이터 (PROVIDER_REGISTRY + get_llm_api)
+    │   ├── llm_api/
+    │   │   ├── claude_service.py  # ClaudeService (Anthropic SDK)
+    │   │   ├── openai_service.py  # OpenAIService (OpenAI SDK)
+    │   │   └── gemini_service.py  # GeminiService (google-generativeai SDK)
     │   ├── llm_service.py   # 로컬 LLM TCP 소켓 통신 (내부 호출)
     │   ├── sso_service.py   # SSO 토큰 검증 (외부 SSO 발급 토큰)
     │   └── auth_service.py  # 로그인 / 회원가입 / 자체 JWT 발급·검증 (인메모리)
@@ -74,10 +78,13 @@ ai_rag_system/
 
 ## AIService — 외부 LLM 호출 (내부 전용)
 
-`AIService`는 Claude/GPT/Gemini 공식 SDK(`anthropic`, `openai`, `google-generativeai`)를 그대로 사용하되,
-프로바이더별 클라이언트 클래스·설정 키를 `PROVIDER_REGISTRY`에 선언적으로 등록해두고
-`get_llm_api(provider, model=None, api_key=None)`로 조회/생성한다. 새 프로바이더 추가 시 클라이언트 클래스만 만들고
-레지스트리에 한 줄만 등록하면 됨 (`if/elif` 분기 불필요).
+`AIService`(`services/ai_service.py`)는 프로바이더 조회/생성만 담당하는 오케스트레이터이며,
+Claude/GPT/Gemini 공식 SDK(`anthropic`, `openai`, `google-generativeai`)를 사용하는 실제 구현체는
+`services/llm_api/`(`ClaudeService`, `OpenAIService`, `GeminiService`)에 분리되어 있다.
+
+프로바이더별 클라이언트 클래스·설정 키는 `PROVIDER_REGISTRY`에 선언적으로 등록해두고
+`get_llm_api(provider, model=None, api_key=None)`로 조회/생성한다. 새 프로바이더 추가 시
+`services/llm_api/`에 클라이언트 클래스만 만들고 레지스트리에 한 줄만 등록하면 됨 (`if/elif` 분기 불필요).
 
 ```python
 # 1. 프로바이더(+선택적 model/api_key 오버라이드)로 클라이언트 조회/생성
@@ -90,6 +97,30 @@ response = await client.chat(prompt="...", model=None, max_tokens=1024)
 ```
 
 동일한 `(provider, model, api_key)` 조합은 캐시된 클라이언트를 재사용한다.
+
+개별 프로바이더 서비스가 필요하면 오케스트레이터를 거치지 않고 바로 가져다 쓸 수도 있음:
+
+```python
+from services import ClaudeService, OpenAIService, GeminiService
+# 또는
+from services.llm_api import ClaudeService
+```
+
+### config.json / .env 연결 구조
+
+`get_llm_api()`가 `model`/`api_key`를 명시적으로 넘기지 않으면, `PROVIDER_REGISTRY`의
+`api_key_field`/`model_key`로 `AIConfig`(= `.env` + `config.json` 로드 결과)에서 기본값을 가져온다.
+
+```
+.env                              config_loader.py (AIConfig)         config.json "ai.default_models"
+─────────────────────             ──────────────────────────         ────────────────────────────────
+CLAUDE_API_KEY   ───────────────▶  claude_api_key                     "claude": "claude-sonnet-4-6" ──┐
+OPENAI_API_KEY   ───────────────▶  openai_api_key                     "gpt": "gpt-5.5"                ├─▶ default_models
+GEMINI_API_KEY   ───────────────▶  gemini_api_key                     "gemini": "gemini-3.5-flash" ───┘
+```
+
+즉 **`config.json`의 `ai.default_models` 값을 바꾸면 서버가 사용하는 기본 모델도 바뀐다**
+(단, `load_config()`는 서버 시작 시 1회만 호출되므로 서버 재시작이 필요함 — 런타임 hot-reload는 지원하지 않음).
 
 ---
 
@@ -249,12 +280,16 @@ Client (HTTP)
  │  인프라 / 서비스 생명주기 관리     │
  └────┬──────────────┬───────────────┘
       │              │
- ┌────▼────┐   ┌─────▼──────────────┐
- │AIService│   │ LLMService         │
- │Claude   │   │ 로컬 LLM Pod       │
- │GPT      │   │ TCP Socket         │
- │Gemini   │   └────────────────────┘
- └────┬────┘
+ ┌────▼────────────┐  ┌─────▼──────────────┐
+ │AIService        │  │ LLMService         │
+ │(PROVIDER_REGISTRY│  │ 로컬 LLM Pod       │
+ │ + get_llm_api)  │  │ TCP Socket         │
+ └────┬────────────┘  └────────────────────┘
+      │
+ ┌────▼──────────────────────┐
+ │ services/llm_api/          │
+ │ ClaudeService / OpenAIService / GeminiService │
+ └────┬───────────────────────┘
       │
  ┌────▼──────────────┐
  │ External AI APIs  │

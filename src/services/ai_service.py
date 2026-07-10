@@ -1,124 +1,30 @@
-﻿"""
+"""
 ai_service.py
-AI 서비스 - Claude / GPT / Gemini 구현체 + 팩토리
+AI 서비스 오케스트레이터
+- 실제 프로바이더 구현체(Claude/OpenAI/Gemini)는 services/llm_api/ 에 분리되어 있음
+- 이 파일은 PROVIDER_REGISTRY로 프로바이더를 조회/생성하는 역할만 담당
 """
 
 import logging
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 from interfaces import BaseAIInterface
-from schemas import AIProvider, ChatResponse
+from schemas import AIProvider
+from services.llm_api import ClaudeService, OpenAIService, GeminiService
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeClient(BaseAIInterface):
-
-    def __init__(self, api_key: str, default_model: str):
-        try:
-            import anthropic
-            self._client = anthropic.AsyncAnthropic(api_key=api_key)
-            self._default_model = default_model
-        except ImportError:
-            raise RuntimeError("anthropic 패키지가 설치되지 않았습니다.")
-
-    def default_model(self) -> str:
-        return self._default_model
-
-    async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
-        _model = model or self.default_model()
-        message = await self._client.messages.create(
-            model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return ChatResponse(provider=AIProvider.CLAUDE, model=_model, content=message.content[0].text)
-
-    async def stream_chat(self, prompt: str, model: Optional[str], max_tokens: int) -> AsyncGenerator[str, None]:
-        _model = model or self.default_model()
-        async with self._client.messages.stream(
-            model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            async for text in stream.text_stream:
-                yield text
-
-
-class GPTClient(BaseAIInterface):
-
-    def __init__(self, api_key: str, default_model: str):
-        try:
-            from openai import AsyncOpenAI
-            self._client = AsyncOpenAI(api_key=api_key)
-            self._default_model = default_model
-        except ImportError:
-            raise RuntimeError("openai 패키지가 설치되지 않았습니다.")
-
-    def default_model(self) -> str:
-        return self._default_model
-
-    async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
-        _model = model or self.default_model()
-        response = await self._client.chat.completions.create(
-            model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return ChatResponse(provider=AIProvider.GPT, model=_model, content=response.choices[0].message.content)
-
-    async def stream_chat(self, prompt: str, model: Optional[str], max_tokens: int) -> AsyncGenerator[str, None]:
-        _model = model or self.default_model()
-        stream = await self._client.chat.completions.create(
-            model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
-
-
-class GeminiClient(BaseAIInterface):
-
-    def __init__(self, api_key: str, default_model: str):
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            self._genai = genai
-            self._default_model = default_model
-        except ImportError:
-            raise RuntimeError("google-generativeai 패키지가 설치되지 않았습니다.")
-
-    def default_model(self) -> str:
-        return self._default_model
-
-    async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
-        import asyncio
-        _model = model or self.default_model()
-        gm = self._genai.GenerativeModel(_model)
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: gm.generate_content(prompt))
-        return ChatResponse(provider=AIProvider.GEMINI, model=_model, content=response.text)
-
-    async def stream_chat(self, prompt: str, model: Optional[str], max_tokens: int) -> AsyncGenerator[str, None]:
-        import asyncio
-        _model = model or self.default_model()
-        gm = self._genai.GenerativeModel(_model)
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: gm.generate_content(prompt, stream=True))
-        for chunk in response:
-            yield chunk.text
-
-
 # ─────────────────────────────────────────────
 # 프로바이더 레지스트리
-# provider별로 사용할 클라이언트 클래스와, config에서 api_key/기본 모델을
+# provider별로 사용할 서비스 클래스와, config에서 api_key/기본 모델을
 # 꺼내올 위치(키 이름)를 선언적으로 정의한다.
-# 새 프로바이더 추가 시 클라이언트 클래스만 만들고 여기 한 줄만 등록하면 됨.
+# 새 프로바이더 추가 시 services/llm_api/에 클라이언트만 만들고 여기 한 줄만 등록하면 됨.
 # ─────────────────────────────────────────────
 PROVIDER_REGISTRY: dict[AIProvider, dict] = {
-    AIProvider.CLAUDE: {"client_cls": ClaudeClient, "api_key_field": "claude_api_key", "model_key": "claude"},
-    AIProvider.GPT: {"client_cls": GPTClient, "api_key_field": "openai_api_key", "model_key": "gpt"},
-    AIProvider.GEMINI: {"client_cls": GeminiClient, "api_key_field": "gemini_api_key", "model_key": "gemini"},
+    AIProvider.CLAUDE: {"client_cls": ClaudeService, "api_key_field": "claude_api_key", "model_key": "claude"},
+    AIProvider.GPT: {"client_cls": OpenAIService, "api_key_field": "openai_api_key", "model_key": "gpt"},
+    AIProvider.GEMINI: {"client_cls": GeminiService, "api_key_field": "gemini_api_key", "model_key": "gemini"},
 }
 
 
