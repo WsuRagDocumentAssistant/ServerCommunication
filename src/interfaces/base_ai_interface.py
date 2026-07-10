@@ -1,5 +1,5 @@
 """
-ai_interface.py
+base_ai_interface.py
 AI 서비스 추상 인터페이스
 """
 
@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Optional
 from schemas import ChatResponse
 
 
-class BaseAIService(ABC):
+class BaseAIInterface(ABC):
 
     @abstractmethod
     def default_model(self) -> str: ...

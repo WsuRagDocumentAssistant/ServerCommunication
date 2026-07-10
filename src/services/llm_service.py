@@ -8,12 +8,12 @@ import json
 import logging
 from typing import AsyncGenerator, Optional
 
-from interfaces import BaseLLMService
+from interfaces import BaseLLMInterface
 
 logger = logging.getLogger(__name__)
 
 
-class LLMService(BaseLLMService):
+class LLMService(BaseLLMInterface):
     def __init__(self, host: str, port: int, timeout: float = 30.0):
         self.host = host
         self.port = port

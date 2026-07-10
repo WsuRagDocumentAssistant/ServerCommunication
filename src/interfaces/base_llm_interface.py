@@ -1,5 +1,5 @@
 """
-llm_interface.py
+base_llm_interface.py
 로컬 LLM 서비스 추상 인터페이스
 """
 
@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 
 
-class BaseLLMService(ABC):
+class BaseLLMInterface(ABC):
 
     @abstractmethod
     async def connect(self) -> None: ...

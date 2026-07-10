@@ -6,13 +6,13 @@ AI 서비스 - Claude / GPT / Gemini 구현체 + 팩토리
 import logging
 from typing import AsyncGenerator, Optional
 
-from interfaces import BaseAIService
+from interfaces import BaseAIInterface
 from schemas import AIProvider, ChatResponse
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeClient(BaseAIService):
+class ClaudeClient(BaseAIInterface):
 
     def __init__(self, api_key: str, default_model: str):
         try:
@@ -43,7 +43,7 @@ class ClaudeClient(BaseAIService):
                 yield text
 
 
-class GPTClient(BaseAIService):
+class GPTClient(BaseAIInterface):
 
     def __init__(self, api_key: str, default_model: str):
         try:
@@ -77,7 +77,7 @@ class GPTClient(BaseAIService):
                 yield delta
 
 
-class GeminiClient(BaseAIService):
+class GeminiClient(BaseAIInterface):
 
     def __init__(self, api_key: str, default_model: str):
         try:
@@ -111,15 +111,15 @@ class GeminiClient(BaseAIService):
 
 class AIService:
     def __init__(self, config):
-        self._clients: dict[AIProvider, BaseAIService] = {}
+        self._clients: dict[AIProvider, BaseAIInterface] = {}
         self._config = config
 
-    def get(self, provider: AIProvider) -> BaseAIService:
+    def get(self, provider: AIProvider) -> BaseAIInterface:
         if provider not in self._clients:
             self._clients[provider] = self._build(provider)
         return self._clients[provider]
 
-    def _build(self, provider: AIProvider) -> BaseAIService:
+    def _build(self, provider: AIProvider) -> BaseAIInterface:
         models = self._config.default_models
         if provider == AIProvider.CLAUDE:
             return ClaudeClient(api_key=self._config.claude_api_key, default_model=models["claude"])
