@@ -127,6 +127,45 @@ GEMINI_API_KEY   ───────────────▶  gemini_api_ke
 
 ---
 
+## LocalLLMService — 로컬 LLM 호출 (내부 전용)
+
+`LocalLLMService`(`services/local_llm_service.py`)는 같은 K8s 네임스페이스 내 로컬 LLM Pod와
+TCP 소켓으로 통신한다. `LLMApiService`처럼 provider별로 여러 client를 조회/생성하는 레지스트리 구조가 아니라,
+**Controller가 소유하는 단일 커넥션 인스턴스**를 계속 재사용하는 구조다.
+
+```python
+# Controller._init_infra()에서 인스턴스 하나만 생성 (레지스트리 조회 없음)
+self.llm = LocalLLMService(host=local_llm.host, port=local_llm.port, timeout=local_llm.timeout)
+
+# auto_connect=true면 서버 시작 시 미리 연결
+if local_llm.auto_connect:
+    await self.llm.connect()
+```
+
+실제 요청은 `send()` 또는 `stream_send()`만 호출하면 됨 — 연결이 끊겨 있으면 내부적으로 자동 재연결하므로
+호출부에서 연결 상태를 신경 쓸 필요가 없다:
+
+```python
+result = await local_llm_service.send({"prompt": "..."})
+
+async for chunk in local_llm_service.stream_send({"prompt": "..."}):
+    ...
+```
+
+`connect()`/`disconnect()`는 실제 요청용이 아니라 Controller의 생명주기 훅이다
+(서버 시작 시 초기 연결, `_health_monitor()`의 60초 주기 재연결 감시, 서버 종료 시 정상 종료).
+이 때문에 `LLMApiService.get_llm_api()`처럼 완전히 한 메서드로 통합하지는 않았다 —
+Controller가 연결 상태(`is_connected`)를 직접 들여다봐야 헬스체크와 graceful shutdown이 가능하기 때문.
+
+| | `LLMApiService` | `LocalLLMService` |
+|---|---|---|
+| 진입점 | `get_llm_api()` 1개 메서드 | `connect()`/`send()`/`stream_send()`/`disconnect()` |
+| 인스턴스 관리 | provider별로 캐시된 여러 client | Controller가 소유하는 단일 인스턴스 |
+| 연결 상태 | 없음 (SDK가 매 요청마다 처리) | `is_connected` 플래그로 TCP 소켓 상태 직접 관리 |
+| 재연결 | 불필요 | `send()`/`stream_send()` 호출 시 자동 재연결 + `_health_monitor()` 주기 감시 |
+
+---
+
 ## 환경 설정
 
 ### config.json
@@ -281,8 +320,8 @@ Client (HTTP)
  ┌────▼──────────────────────────────┐
  │  Controller                       │
  │  인프라 / 서비스 생명주기 관리     │
- └────┬──────────────┬───────────────┘
-      │              │
+ └────┬──────────────────────┬───────┘
+      │                      │
  ┌────▼─────────────┐  ┌─────▼──────────────┐
  │LLMApiService     │  │ LocalLLMService    │
  │(PROVIDER_REGISTRY│  │ 로컬 LLM Pod       │
