@@ -109,22 +109,45 @@ class GeminiClient(BaseAIInterface):
             yield chunk.text
 
 
+# ─────────────────────────────────────────────
+# 프로바이더 레지스트리
+# provider별로 사용할 클라이언트 클래스와, config에서 api_key/기본 모델을
+# 꺼내올 위치(키 이름)를 선언적으로 정의한다.
+# 새 프로바이더 추가 시 클라이언트 클래스만 만들고 여기 한 줄만 등록하면 됨.
+# ─────────────────────────────────────────────
+PROVIDER_REGISTRY: dict[AIProvider, dict] = {
+    AIProvider.CLAUDE: {"client_cls": ClaudeClient, "api_key_field": "claude_api_key", "model_key": "claude"},
+    AIProvider.GPT: {"client_cls": GPTClient, "api_key_field": "openai_api_key", "model_key": "gpt"},
+    AIProvider.GEMINI: {"client_cls": GeminiClient, "api_key_field": "gemini_api_key", "model_key": "gemini"},
+}
+
+
 class AIService:
     def __init__(self, config):
-        self._clients: dict[AIProvider, BaseAIInterface] = {}
+        self._clients: dict[tuple, BaseAIInterface] = {}
         self._config = config
 
-    def get(self, provider: AIProvider) -> BaseAIInterface:
-        if provider not in self._clients:
-            self._clients[provider] = self._build(provider)
-        return self._clients[provider]
+    def get_llm_api(
+        self,
+        provider: AIProvider,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> BaseAIInterface:
+        """
+        provider(+선택적 model/api_key 오버라이드)로 클라이언트를 조회/생성한다.
+        동일 조합은 캐시된 클라이언트를 재사용한다.
+        """
+        cache_key = (provider, model, api_key)
+        if cache_key not in self._clients:
+            self._clients[cache_key] = self._build(provider, model, api_key)
+        return self._clients[cache_key]
 
-    def _build(self, provider: AIProvider) -> BaseAIInterface:
-        models = self._config.default_models
-        if provider == AIProvider.CLAUDE:
-            return ClaudeClient(api_key=self._config.claude_api_key, default_model=models["claude"])
-        elif provider == AIProvider.GPT:
-            return GPTClient(api_key=self._config.openai_api_key, default_model=models["gpt"])
-        elif provider == AIProvider.GEMINI:
-            return GeminiClient(api_key=self._config.gemini_api_key, default_model=models["gemini"])
-        raise ValueError(f"지원하지 않는 공급자: {provider}")
+    def _build(self, provider: AIProvider, model: Optional[str], api_key: Optional[str]) -> BaseAIInterface:
+        entry = PROVIDER_REGISTRY.get(provider)
+        if not entry:
+            raise ValueError(f"지원하지 않는 공급자: {provider}")
+
+        resolved_api_key = api_key or getattr(self._config, entry["api_key_field"])
+        resolved_model = model or self._config.default_models[entry["model_key"]]
+
+        return entry["client_cls"](api_key=resolved_api_key, default_model=resolved_model)
