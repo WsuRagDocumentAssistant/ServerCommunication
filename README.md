@@ -40,7 +40,11 @@ ai_rag_system/
     │   └── auth_service.py  # 로그인 / 회원가입 / 자체 JWT 발급·검증 (인메모리)
     ├── database/
     │   └── database_service.py  # PostgreSQL 커넥션 풀
-    ├── interfaces/          # 추상 인터페이스
+    ├── interfaces/
+    │   ├── base_ai_interface.py         # BaseAIInterface
+    │   ├── base_llm_interface.py        # BaseLLMInterface
+    │   ├── base_database_interface.py   # BaseDatabaseInterface (Postgres 전용)
+    │   └── base_repository_interface.py # BaseRepositoryInterface (저장소 순수 계약)
     ├── schemas/             # Pydantic 요청/응답 모델
     └── utils/
         ├── auth_helper.py   # verify_token Depends (자체 JWT 검증)
@@ -65,6 +69,27 @@ ai_rag_system/
 > AI / LLM 호출은 클라이언트에 직접 노출하지 않고 서비스 레이어에서 내부적으로 처리
 > `/users/*` 는 로그인/SSO 로그인 성공 시 자체 서명 JWT를 발급하며, 이후 인증이 필요한 요청은 `Authorization: Bearer <token>` 헤더 사용
 > 사용자 정보 및 활성 토큰은 서버 메모리에 저장되며, 서버 재시작 시 초기화됨 (영구 저장소 미적용)
+
+---
+
+## AIService — 외부 LLM 호출 (내부 전용)
+
+`AIService`는 Claude/GPT/Gemini 공식 SDK(`anthropic`, `openai`, `google-generativeai`)를 그대로 사용하되,
+프로바이더별 클라이언트 클래스·설정 키를 `PROVIDER_REGISTRY`에 선언적으로 등록해두고
+`get_llm_api(provider, model=None, api_key=None)`로 조회/생성한다. 새 프로바이더 추가 시 클라이언트 클래스만 만들고
+레지스트리에 한 줄만 등록하면 됨 (`if/elif` 분기 불필요).
+
+```python
+# 1. 프로바이더(+선택적 model/api_key 오버라이드)로 클라이언트 조회/생성
+client = ai_service.get_llm_api(AIProvider.CLAUDE)                       # 기본 설정값 사용
+client = ai_service.get_llm_api(AIProvider.CLAUDE, model="claude-opus-4-8")  # 모델 오버라이드
+client = ai_service.get_llm_api(AIProvider.GPT, api_key="sk-user-own-key")   # API 키 오버라이드 (BYOK)
+
+# 2. 실제 요청은 client에서 처리
+response = await client.chat(prompt="...", model=None, max_tokens=1024)
+```
+
+동일한 `(provider, model, api_key)` 조합은 캐시된 클라이언트를 재사용한다.
 
 ---
 
