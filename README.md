@@ -1,347 +1,284 @@
 # AI RAG System
 
-멀티 AI 프로바이더 + 로컬 LLM + PostgreSQL 기반의 RAG 게이트웨이 서버
-
 ---
 
-## 기술 스택
+## 라우터 — 외부 통신 엔드포인트
 
-- **Runtime**: Python 3.11
-- **Framework**: FastAPI + Uvicorn
-- **Database**: PostgreSQL 17 + pgvector (asyncpg)
-- **AI Providers**: Claude (Anthropic) / GPT (OpenAI) / Gemini (Google)
-- **Local LLM**: TCP Socket 통신 (같은 K8s 네임스페이스 내 Pod)
-- **Auth**: JWT (RS256 / HS256) - FastAPI Depends
-- **Protocol**: HTTP REST
-
----
-
-## 프로젝트 구조
-
-```
-ai_rag_system/
-├── config.json              # 서버 설정 (비밀값 제외)
-├── .env                     # API 키, DB 크레덴셜 (Git 제외)
-├── requirements.txt
-│
-└── src/
-    ├── server_starter.py    # 진입점
-    ├── core/
-    │   ├── app.py           # FastAPI 앱 초기화
-    │   ├── controller.py    # 인프라 / 서비스 생명주기 관리
-    │   └── routers/
-    │       ├── health_router.py  # /health
-    │       ├── file_router.py   # /file/*
-    │       └── auth_router.py   # /users/*
-    ├── services/
-    │   ├── llm_api_service.py  # LLMApiService 오케스트레이터 (PROVIDER_REGISTRY + get_llm_api)
-    │   ├── llm_api/
-    │   │   ├── claude_service.py  # ClaudeService (Anthropic SDK)
-    │   │   ├── openai_service.py  # OpenAIService (OpenAI SDK)
-    │   │   └── gemini_service.py  # GeminiService (google-generativeai SDK)
-    │   ├── local_llm_service.py  # 로컬 LLM TCP 소켓 통신 (내부 호출)
-    │   ├── sso_service.py   # SSO 토큰 검증 (외부 SSO 발급 토큰)
-    │   └── auth_service.py  # 로그인 / 회원가입 / 자체 JWT 발급·검증 (인메모리)
-    ├── database/
-    │   └── database_service.py  # PostgreSQL 커넥션 풀
-    ├── interfaces/
-    │   ├── base_llm_api_interface.py      # BaseLLMApiInterface
-    │   ├── base_local_llm_interface.py    # BaseLocalLLMInterface
-    │   ├── base_database_interface.py     # BaseDatabaseInterface (Postgres 전용)
-    │   └── base_repository_interface.py   # BaseRepositoryInterface (저장소 순수 계약)
-    ├── schemas/             # Pydantic 요청/응답 모델 (llm_api_schemas.py, local_llm_schemas.py 등)
-    └── utils/
-        ├── auth_helper.py   # verify_token Depends (자체 JWT 검증)
-        ├── config_loader.py
-        ├── log_helper.py
-        └── response_helper.py
-```
-
----
-
-## API 엔드포인트
+### HealthRouter
 
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/health` | 서버 상태 확인 |
-| POST | `/file/upload` | hwpx 파일 업로드 |
-| POST | `/users/login` | 로컬 로그인 (이메일/비밀번호) |
-| POST | `/users/create/user` | 회원가입 |
-| POST | `/users/logout` | 로그아웃 (Bearer 토큰 필요) |
-| POST | `/users/sso/login` | SSO 로그인 (SSO 토큰 → 자체 JWT 발급) |
 
-> AI / LLM 호출은 클라이언트에 직접 노출하지 않고 서비스 레이어에서 내부적으로 처리
-> `/users/*` 는 로그인/SSO 로그인 성공 시 자체 서명 JWT를 발급하며, 이후 인증이 필요한 요청은 `Authorization: Bearer <token>` 헤더 사용
-> 사용자 정보 및 활성 토큰은 서버 메모리에 저장되며, 서버 재시작 시 초기화됨 (영구 저장소 미적용)
+**예시**
+```bash
+curl -X GET https://<server>/health
+```
+
+### FileRouter
+
+| Method | Path | 요청 | 응답 |
+|--------|------|------|------|
+| POST | `/file/upload` | `multipart/form-data` (`file`, `.hwpx`만 허용) | `{ filename, path, size }` |
+
+**예시**
+```bash
+curl -X POST https://<server>/file/upload \
+  -F "file=@문서.hwpx"
+```
+
+### AuthRouter (`prefix: /users`)
+
+| Method | Path | 요청 | 응답 |
+|--------|------|------|------|
+| POST | `/users/login` | `{ email, password }` | `{ access_token, user }` |
+| POST | `/users/create/user` | `{ email, password, name }` | `user` |
+| POST | `/users/logout` | `Authorization: Bearer <token>` | 메시지만 |
+| POST | `/users/sso/login` | `{ sso_token }` | `{ access_token, user }` |
+
+**예시**
+```bash
+curl -X POST https://<server>/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@school.ac.kr", "password": "1234"}'
+
+curl -X POST https://<server>/users/create/user \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@school.ac.kr", "password": "1234", "name": "테스터"}'
+
+curl -X POST https://<server>/users/logout \
+  -H "Authorization: Bearer eyJhbGciOi..."
+
+curl -X POST https://<server>/users/sso/login \
+  -H "Content-Type: application/json" \
+  -d '{"sso_token": "eyJhbGciOi..."}'
+```
 
 ---
 
-## LLMApiService — 외부 LLM 호출 (내부 전용)
+## 서비스 — 내부 통신 메서드 파라미터
 
-`LLMApiService`(`services/llm_api_service.py`)는 프로바이더 조회/생성만 담당하는 오케스트레이터이며,
-Claude/GPT/Gemini 공식 SDK(`anthropic`, `openai`, `google-generativeai`)를 사용하는 실제 구현체는
-`services/llm_api/`(`ClaudeService`, `OpenAIService`, `GeminiService`)에 분리되어 있다.
-
-프로바이더별 클라이언트 클래스·설정 키는 `PROVIDER_REGISTRY`에 선언적으로 등록해두고
-`get_llm_api(provider, model=None, api_key=None)`로 조회/생성한다. 새 프로바이더 추가 시
-`services/llm_api/`에 클라이언트 클래스만 만들고 레지스트리에 한 줄만 등록하면 됨 (`if/elif` 분기 불필요).
+### LLMApiService (`services/llm_api_service.py`)
 
 ```python
-# 1. 프로바이더(+선택적 model/api_key 오버라이드)로 클라이언트 조회/생성
-client = llm_api_service.get_llm_api(AIProvider.CLAUDE)                       # 기본 설정값 사용
-client = llm_api_service.get_llm_api(AIProvider.CLAUDE, model="claude-opus-4-8")  # 모델 오버라이드
-client = llm_api_service.get_llm_api(AIProvider.GPT, api_key="sk-user-own-key")   # API 키 오버라이드 (BYOK)
-
-# 2. 실제 요청은 client에서 처리
-response = await client.chat(prompt="...", model=None, max_tokens=1024)
-```
-
-동일한 `(provider, model, api_key)` 조합은 캐시된 클라이언트를 재사용한다.
-
-개별 프로바이더 서비스가 필요하면 오케스트레이터를 거치지 않고 바로 가져다 쓸 수도 있음:
-
-```python
-from services import ClaudeService, OpenAIService, GeminiService
-# 또는
-from services.llm_api import ClaudeService
-```
-
-### config.json / .env 연결 구조
-
-`get_llm_api()`가 `model`/`api_key`를 명시적으로 넘기지 않으면, `PROVIDER_REGISTRY`의
-`api_key_field`/`model_key`로 `LLMApiConfig`(= `.env` + `config.json` 로드 결과)에서 기본값을 가져온다.
-
-```
-.env                              config_loader.py (LLMApiConfig)     config.json "llm_api.default_models"
-─────────────────────             ──────────────────────────         ────────────────────────────────────
-CLAUDE_API_KEY   ───────────────▶  claude_api_key                     "claude": "claude-sonnet-4-6" ──┐
-OPENAI_API_KEY   ───────────────▶  openai_api_key                     "gpt": "gpt-5.5"                ├─▶ default_models
-GEMINI_API_KEY   ───────────────▶  gemini_api_key                     "gemini": "gemini-3.5-flash" ───┘
-```
-
-즉 **`config.json`의 `llm_api.default_models` 값을 바꾸면 서버가 사용하는 기본 모델도 바뀐다**
-(단, `load_config()`는 서버 시작 시 1회만 호출되므로 서버 재시작이 필요함 — 런타임 hot-reload는 지원하지 않음).
-
-> `config.json`의 `local_llm` 섹션은 로컬 LLM Pod(TCP 소켓) 연결 설정(`LocalLLMConfig`)이며,
-> `llm_api` 섹션은 외부 LLM API(Claude/GPT/Gemini) 설정(`LLMApiConfig`)이다.
-
----
-
-## LocalLLMService — 로컬 LLM 호출 (내부 전용)
-
-`LocalLLMService`(`services/local_llm_service.py`)는 같은 K8s 네임스페이스 내 로컬 LLM Pod와
-TCP 소켓으로 통신한다. `LLMApiService`처럼 provider별로 여러 client를 조회/생성하는 레지스트리 구조가 아니라,
-**Controller가 소유하는 단일 커넥션 인스턴스**를 계속 재사용하는 구조다.
-
-```python
-# Controller._init_infra()에서 인스턴스 하나만 생성 (레지스트리 조회 없음)
-self.llm = LocalLLMService(host=local_llm.host, port=local_llm.port, timeout=local_llm.timeout)
-
-# auto_connect=true면 서버 시작 시 미리 연결
-if local_llm.auto_connect:
-    await self.llm.connect()
-```
-
-실제 요청은 `send()` 또는 `stream_send()`만 호출하면 됨 — 연결이 끊겨 있으면 내부적으로 자동 재연결하므로
-호출부에서 연결 상태를 신경 쓸 필요가 없다:
-
-```python
-result = await local_llm_service.send({"prompt": "..."})
-
-async for chunk in local_llm_service.stream_send({"prompt": "..."}):
-    ...
-```
-
-`connect()`/`disconnect()`는 실제 요청용이 아니라 Controller의 생명주기 훅이다
-(서버 시작 시 초기 연결, `_health_monitor()`의 60초 주기 재연결 감시, 서버 종료 시 정상 종료).
-이 때문에 `LLMApiService.get_llm_api()`처럼 완전히 한 메서드로 통합하지는 않았다 —
-Controller가 연결 상태(`is_connected`)를 직접 들여다봐야 헬스체크와 graceful shutdown이 가능하기 때문.
-
-| | `LLMApiService` | `LocalLLMService` |
-|---|---|---|
-| 진입점 | `get_llm_api()` 1개 메서드 | `connect()`/`send()`/`stream_send()`/`disconnect()` |
-| 인스턴스 관리 | provider별로 캐시된 여러 client | Controller가 소유하는 단일 인스턴스 |
-| 연결 상태 | 없음 (SDK가 매 요청마다 처리) | `is_connected` 플래그로 TCP 소켓 상태 직접 관리 |
-| 재연결 | 불필요 | `send()`/`stream_send()` 호출 시 자동 재연결 + `_health_monitor()` 주기 감시 |
-
----
-
-## 환경 설정
-
-### config.json
-
-```json
+BaseLLMApiInterface get_llm_api(AIProvider provider, str model, str api_key)
 {
-  "server": { "host": "0.0.0.0", "port": 8000, "log_level": "INFO" },
-  "local_llm": { "host": "127.0.0.1", "port": 11434, "timeout": 30.0, "auto_connect": false },
-  "database": {
-    "host": "/tmp",
-    "port": 5432,
-    "name": "ragdb",
-    "pool_min": 2,
-    "pool_max": 10,
-    "auto_connect": true
-  },
-  "llm_api": {
-    "default_models": {
-      "claude": "claude-sonnet-4-6",
-      "gpt": "gpt-5.5",
-      "gemini": "gemini-3.5-flash"
-    }
-  }
+	...
 }
 ```
-
-### .env
-
-```env
-CLAUDE_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...
-
-DB_USER=raguser
-DB_PASSWORD=...
-
-JWT_SECRET_KEY=...
-JWT_ALGORITHM=HS256
-JWT_EXPIRE_MINUTES=1440
+```python
+client = llm_api_service.get_llm_api(AIProvider.GPT, "gpt-5.5", None)
 ```
 
----
-
-## 실행 방법
-
-```bash
-pip install -r requirements.txt
-python src/server_starter.py
+```python
+ChatResponse chat(str prompt, str model, int max_tokens)
+{
+	...
+}
+```
+```python
+response = client.chat("프롬프트", "GPT-4.5", 10000)
 ```
 
----
-
-## PostgreSQL 설정 (Kubeflow 환경)
-
-PostgreSQL 17 + pgvector를 Kubeflow notebook 내부에서 운용.
-데이터는 NFS PVC(`/home/jovyan/rag/postgresql/data`)에 영구 저장.
-소켓 통신: `/tmp/.s.PGSQL.5432`
-
-### 기동
-
-```bash
-pg_ctl -D /home/jovyan/rag/postgresql/data \
-  -l /home/jovyan/rag/postgresql/logs/postgresql.log \
-  start
+```python
+AsyncGenerator stream_chat(str prompt, str model, int max_tokens)
+{
+	...
+}
+```
+```python
+async for chunk in client.stream_chat("프롬프트", "GPT-4.5", 10000):
+    print(chunk)
 ```
 
-### 접속
+### LocalLLMService (`services/local_llm_service.py`)
 
-```bash
-psql -h /tmp -U raguser -d ragdb
+```python
+None connect()
+{
+	...
+}
+```
+```python
+await local_llm_service.connect()
 ```
 
-> Pod 재시작 후에는 위 `pg_ctl start` 명령을 다시 실행해야 함
-
----
-
-## 인프라 설정 (현재 환경: Kubeflow on K8s)
-
-### K8s Service
-
-rag-0 Pod을 클러스터 내부에서 접근 가능하도록 Service 등록.
-
-```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Service
-metadata:
-  name: rag-service
-  namespace: ragsystem
-spec:
-  selector:
-    app: rag
-  ports:
-    - port: 8000
-      targetPort: 8000
-EOF
+```python
+None disconnect()
+{
+	...
+}
+```
+```python
+await local_llm_service.disconnect()
 ```
 
-- ClusterIP: `10.99.68.28`
-- 네임스페이스 내 DNS: `rag-service.ragsystem.svc.cluster.local:8000`
-
-### Cloudflare Tunnel (외부 접근)
-
-cloudflared 바이너리는 NFS PVC에 저장하여 Pod 재시작 후에도 유지.
-
-```bash
-# 임시 터널 (테스트용 - 재실행 시 URL 변경됨)
-/home/jovyan/rag/cloudflared tunnel --url http://localhost:8000
-
-# 고정 도메인 터널 (Cloudflare 계정 + 도메인 필요)
-/home/jovyan/rag/cloudflared tunnel run [터널이름]
+```python
+str send(dict payload)
+{
+	...
+}
+```
+```python
+result = await local_llm_service.send({"prompt": "프롬프트", "max_tokens": 512})
 ```
 
-> Pod 재시작 후 cloudflared 재실행 필요
-
-### NFS PVC 마운트
-
-| 경로 | 용도 |
-|------|------|
-| `/home/jovyan/rag/postgresql/data` | PostgreSQL 데이터 (영구 저장) |
-| `/home/jovyan/rag/postgresql/logs` | PostgreSQL 로그 |
-| `/home/jovyan/rag/uploads` | hwpx 파일 업로드 저장소 |
-| `/home/jovyan/rag/cloudflared` | cloudflared 바이너리 |
-
----
-
-## 새 서버 환경 마이그레이션 시 변경 필요 사항
-
-현재는 Kubeflow notebook 내부에서 운용 중이며, 순수 K8s 환경으로 이전 시 아래 항목 변경 필요.
-
-| 항목 | 현재 (Kubeflow) | 변경 후 (순수 K8s) |
-|------|----------------|-------------------|
-| PostgreSQL | notebook Pod 내부 설치 | 별도 StatefulSet으로 분리 |
-| PostgreSQL 소켓 | Unix Socket `/tmp` | TCP `postgres-service:5432` |
-| cloudflared | 수동 실행 | Deployment로 상시 운용 |
-| 스토리지 | NFS PVC | K8s 네이티브 PVC |
-| config.json `database.host` | `/tmp` | `postgres-service` |
-
----
-
-## 아키텍처
-
+```python
+AsyncGenerator stream_send(dict payload)
+{
+	...
+}
 ```
-Client (HTTP)
-      │
- ┌────▼──────────────────────────────┐
- │  FastAPI (app.py)                 │
- │  CORS / Request Logging           │
- │  자체 JWT 검증 (verify_token)     │
- └────┬──────────────────────────────┘
-      │
- ┌────▼──────────────────────────────┐
- │  Controller                       │
- │  인프라 / 서비스 생명주기 관리     │
- └────┬──────────────────────┬───────┘
-      │                      │
- ┌────▼─────────────┐  ┌─────▼──────────────┐
- │LLMApiService     │  │ LocalLLMService    │
- │(PROVIDER_REGISTRY│  │ 로컬 LLM Pod       │
- │ + get_llm_api)   │  │ TCP Socket         │
- └────┬─────────────┘  └────────────────────┘
-      │
- ┌────▼──────────────────────┐
- │ services/llm_api/         │
- │ ClaudeService,            │
- │ OpenAIService,            │  
- │ GeminiService             │
- └────┬──────────────────────┘
-      │
- ┌────▼──────────────┐
- │ External AI APIs  │
- └───────────────────┘
+```python
+async for chunk in local_llm_service.stream_send({"prompt": "프롬프트", "max_tokens": 512}):
+    print(chunk)
+```
 
- ┌──────────────────────────┐
- │ DatabaseService          │
- │ PostgreSQL 17 + pgvector │
- │ Unix Socket /tmp         │
- └──────────────────────────┘
+### SSOService (`services/sso_service.py`)
+
+```python
+None init()
+{
+	...
+}
+```
+```python
+await sso_service.init()
+```
+
+```python
+bool validate_token(str token)
+{
+	...
+}
+```
+```python
+is_valid = await sso_service.validate_token("eyJhbGciOi...")
+```
+
+```python
+dict get_user_info(str token)
+{
+	...
+}
+```
+```python
+info = await sso_service.get_user_info("eyJhbGciOi...")
+```
+
+```python
+None close()
+{
+	...
+}
+```
+```python
+await sso_service.close()
+```
+
+### AuthService (`services/auth_service.py`)
+
+```python
+dict register(str email, str password, str name)
+{
+	...
+}
+```
+```python
+user = await auth_service.register("test@school.ac.kr", "1234", "테스터")
+```
+
+```python
+tuple login(str email, str password)
+{
+	...
+}
+```
+```python
+access_token, user = await auth_service.login("test@school.ac.kr", "1234")
+```
+
+```python
+tuple sso_login(str sso_token)
+{
+	...
+}
+```
+```python
+access_token, user = await auth_service.sso_login("eyJhbGciOi...")
+```
+
+```python
+None logout(str token)
+{
+	...
+}
+```
+```python
+auth_service.logout("eyJhbGciOi...")
+```
+
+```python
+dict decode_access_token(str token)
+{
+	...
+}
+```
+```python
+payload = auth_service.decode_access_token("eyJhbGciOi...")
+```
+
+### DatabaseService (`database/database_service.py`)
+
+```python
+list fetch(str query, *args)
+{
+	...
+}
+```
+```python
+rows = await database_service.fetch("SELECT * FROM users WHERE id = $1", 1)
+```
+
+```python
+Record fetchrow(str query, *args)
+{
+	...
+}
+```
+```python
+row = await database_service.fetchrow("SELECT * FROM users WHERE email = $1", "test@school.ac.kr")
+```
+
+```python
+Any fetchval(str query, *args)
+{
+	...
+}
+```
+```python
+count = await database_service.fetchval("SELECT COUNT(*) FROM users")
+```
+
+```python
+str execute(str query, *args)
+{
+	...
+}
+```
+```python
+status = await database_service.execute("DELETE FROM users WHERE id = $1", 1)
+```
+
+```python
+None executemany(str query, list args)
+{
+	...
+}
+```
+```python
+await database_service.executemany(
+    "INSERT INTO users (email, name) VALUES ($1, $2)",
+    [("a@school.ac.kr", "A"), ("b@school.ac.kr", "B")],
+)
 ```

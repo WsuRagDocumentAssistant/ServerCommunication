@@ -1,6 +1,6 @@
 """
 app.py
-FastAPI 앱 클래스 - Node.js App 구조 기반
+FastAPI 앱 클래스
 """
 
 import logging
