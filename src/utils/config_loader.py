@@ -40,7 +40,6 @@ class LocalLLMConfig:
     host: str
     port: int
     timeout: float
-    auto_connect: bool
 
 
 @dataclass
@@ -107,7 +106,6 @@ def load_config() -> Config:
             host=local_llm["host"],
             port=local_llm["port"],
             timeout=local_llm["timeout"],
-            auto_connect=local_llm["auto_connect"],
         ),
         llm_api=LLMApiConfig(
             claude_api_key=os.environ.get("CLAUDE_API_KEY", ""),

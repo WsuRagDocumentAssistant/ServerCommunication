@@ -7,8 +7,7 @@
   "local_llm": {
     "host": "10.101.96.71",
     "port": 8001,
-    "timeout": 30.0,
-    "auto_connect": false
+    "timeout": 30.0
   },
   "database": {
     "host": "/tmp",

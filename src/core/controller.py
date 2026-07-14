@@ -1,16 +1,15 @@
-﻿"""
+"""
 controller.py
-- 인프라 계층 초기화 (DB, LLM)
-- 서비스 계층 초기화 (AI, SSO, Auth)
-- 서비스 간 의존성 주입
+- 인프라 계층 초기화 (DB)
+- 서비스 상태(Store) 초기화 (Auth, SSO)
+- 라우터/서비스 명령이 쓸 설정과 상태를 get_services()로 노출
 """
 
-import asyncio
 import logging
 from typing import Optional
 
 from database import DatabaseService
-from services import LLMApiService, LocalLLMService, SSOService, AuthService
+from services import AuthStore, SsoStore
 from utils import load_config, Config
 
 logger = logging.getLogger(__name__)
@@ -23,16 +22,10 @@ class Controller:
 
         # ── 인프라 계층 ────────────────────────
         self.db: Optional[DatabaseService] = None
-        self.llm: Optional[LocalLLMService] = None
 
-        # ── 서비스 계층 ────────────────────────
-        self.ai: Optional[LLMApiService] = None
-        self.sso: Optional[SSOService] = None
-        self.auth: Optional[AuthService] = None
-
-        # ── 백그라운드 태스크 ───────────────────
-        self.background_tasks: list[asyncio.Task] = []
-        self.shutdown_event = asyncio.Event()
+        # ── 상태 저장소 ────────────────────────
+        self.auth_store: Optional[AuthStore] = None
+        self.sso_store: Optional[SsoStore] = None
 
     # ─────────────────────────────────────────
     # Init
@@ -44,8 +37,6 @@ class Controller:
 
         await self._init_infra()
         await self._init_services()
-        self._inject_dependencies()
-        self._start_background_tasks()
 
         self.is_active = True
         logger.info("=" * 50)
@@ -73,33 +64,22 @@ class Controller:
         else:
             logger.info("[Controller] DB auto_connect=false, 연결 건너뜀")
 
-        llm = self.config.local_llm
-        self.llm = LocalLLMService(host=llm.host, port=llm.port, timeout=llm.timeout)
-        if llm.auto_connect:
-            try:
-                await self.llm.connect()
-            except Exception as e:
-                logger.warning(f"[Controller] LLM 초기연결 실패 (요청 시 재시도): {e}")
-
         logger.info("[Controller] 인프라 계층 초기화 완료")
 
     async def _init_services(self) -> None:
         logger.info("[Controller] 서비스 계층 초기화 중...")
         sso = self.config.sso
+        auth = self.config.auth
 
-        self.ai = LLMApiService(config=self.config.llm_api)
-
-        self.sso = SSOService(
+        self.sso_store = SsoStore(
             issuer_url=sso.issuer_url,
             client_id=sso.client_id,
             client_secret=sso.client_secret,
             algorithm=sso.algorithm,
         )
-        await self.sso.init()
+        await self.sso_store.init()
 
-        auth = self.config.auth
-        self.auth = AuthService(
-            sso_service=self.sso,
+        self.auth_store = AuthStore(
             jwt_secret=auth.jwt_secret,
             jwt_algorithm=auth.jwt_algorithm,
             jwt_expire_minutes=auth.jwt_expire_minutes,
@@ -107,47 +87,16 @@ class Controller:
 
         logger.info("[Controller] 서비스 계층 초기화 완료")
 
-    def _inject_dependencies(self) -> None:
-        logger.info("[Controller] 의존성 주입 중...")
-        # 예: AI 서비스에 DB 주입 (향후 RAG 구현 시)
-        # self.ai.set_db(self.db)
-        logger.info("[Controller] 의존성 주입 완료")
-
-    # ─────────────────────────────────────────
-    # Background Tasks
-    # ─────────────────────────────────────────
-    def _start_background_tasks(self) -> None:
-        self.background_tasks = [
-            asyncio.create_task(self._health_monitor(), name="health_monitor"),
-        ]
-        logger.info(f"[Controller] 백그라운드 태스크 {len(self.background_tasks)}개 시작")
-
-    async def _health_monitor(self) -> None:
-        while not self.shutdown_event.is_set():
-            try:
-                await asyncio.wait_for(self.shutdown_event.wait(), timeout=60.0)
-            except asyncio.TimeoutError:
-                pass
-            if self.shutdown_event.is_set():
-                break
-            if self.llm and not self.llm.is_connected:
-                logger.warning("[Controller] LLM 끊김 → 재연결 시도")
-                try:
-                    await self.llm.connect()
-                    logger.info("[Controller] LLM 재연결 성공")
-                except Exception as e:
-                    logger.error(f"[Controller] LLM 재연결 실패: {e}")
-
     # ─────────────────────────────────────────
     # 서비스 노출
     # ─────────────────────────────────────────
     def get_services(self) -> dict:
         return {
-            "ai": self.ai,
-            "llm": self.llm,
             "db": self.db,
-            "sso": self.sso,
-            "auth": self.auth,
+            "auth_store": self.auth_store,
+            "sso_store": self.sso_store,
+            "llm_api_config": self.config.llm_api,
+            "local_llm_config": self.config.local_llm,
         }
 
     # ─────────────────────────────────────────
@@ -159,18 +108,9 @@ class Controller:
         logger.info("=" * 50)
 
         self.is_active = False
-        self.shutdown_event.set()
 
-        for task in self.background_tasks:
-            task.cancel()
-        if self.background_tasks:
-            await asyncio.gather(*self.background_tasks, return_exceptions=True)
-        logger.info("[Controller] 백그라운드 태스크 종료")
-
-        if self.sso:
-            await self.sso.close()
-        if self.llm:
-            await self.llm.disconnect()
+        if self.sso_store:
+            await self.sso_store.close()
         if self.db:
             await self.db.close()
 

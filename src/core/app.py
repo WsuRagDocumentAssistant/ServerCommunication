@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from utils.response_helper import fail
-from core.routers import HealthRouter, FileRouter, AuthRouter
+from core.routers import build_router
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class App:
         self.fastapi_app = FastAPI(
             title="FastAPI LLM Gateway",
             version="1.0.0",
-            description="WebSocket / 외부 AI API / 로컬 LLM 통합 게이트웨이",
+            description="외부 AI API / 로컬 LLM 통합 게이트웨이",
             lifespan=lifespan,
         )
 
@@ -63,11 +63,9 @@ class App:
     def _init_routes(self) -> None:
         """controller.init() 완료 후 서비스를 꺼내 라우터에 주입"""
         services = self.controller.get_services()
-        self.fastapi_app.state.auth_service = services["auth"]
+        self.fastapi_app.state.services = services
 
-        self.fastapi_app.include_router(HealthRouter().router)
-        self.fastapi_app.include_router(FileRouter().router)
-        self.fastapi_app.include_router(AuthRouter(service=services["auth"]).router)
+        self.fastapi_app.include_router(build_router(services))
 
         logger.info("[App] 라우터 등록 완료")
 
