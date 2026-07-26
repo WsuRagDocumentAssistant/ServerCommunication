@@ -1,52 +1,52 @@
-﻿"""
-server_starter.py
-서버 진입점
+"""
+basic_usage.py
+ai_rag_comm 라이브러리를 Gateway(RAG_Router) 프로세스에서 사용하는 예시.
+FastAPI/uvicorn 서버가 아니라, Controller를 직접 init/close 하고
+RestChannel/SocketChannel/DatabaseService를 코드로 직접 호출한다.
 """
 
 import asyncio
 import logging
-import signal
 
-import uvicorn
-
-from core import Controller, create_app
-from utils import load_config, setup_logging
+from ai_rag_comm import (
+    Controller,
+    RestChannel,
+    SocketChannel,
+    AIProvider,
+    load_config,
+    setup_logging,
+)
 
 logger = logging.getLogger(__name__)
 
 
-async def run_server() -> None:
+async def main() -> None:
     config = load_config()
     setup_logging(config.server.log_level)
 
     controller = Controller(config=config)
-    app = create_app(controller=controller)
+    await controller.init()
 
-    uv_config = uvicorn.Config(
-        app=app,
-        host=config.server.host,
-        port=config.server.port,
-        log_level=config.server.log_level.lower(),
-        loop="asyncio",
-        ws="websockets",
-        log_config=None,
-    )
-    server = uvicorn.Server(uv_config)
+    try:
+        services = controller.get_services()
 
-    loop = asyncio.get_running_loop()
+        rest = RestChannel(services["llm_api_config"], AIProvider.GPT)
+        response = await rest.call({"prompt": "안녕", "max_tokens": 256}, stream=False)
+        logger.info(f"[GPT] {response}")
 
-    def _handle_signal(sig: signal.Signals) -> None:
-        logger.info(f"시그널 수신: {sig.name} → graceful shutdown 시작")
-        server.should_exit = True
+        socket = SocketChannel(
+            services["local_llm_config"].host,
+            services["local_llm_config"].port,
+            services["local_llm_config"].timeout,
+        )
+        response = await socket.call({"prompt": "안녕"}, stream=False)
+        logger.info(f"[Local LLM] {response}")
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, _handle_signal, sig)
-        except NotImplementedError:
-            signal.signal(sig, lambda s, f: _handle_signal(signal.Signals(s)))
-
-    await server.serve()
+        rows = await services["db"].fetch("SELECT 1")
+        logger.info(f"[DB] {rows}")
+    finally:
+        await controller.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(run_server())
+    asyncio.run(main())

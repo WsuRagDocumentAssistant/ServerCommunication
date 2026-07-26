@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-rag-comm"
+version = "0.1.0"
+description = "RAG_Router(Gateway)와 같은 프로세스에서 import해서 쓰는 내부 통신 라이브러리 (LLM API-GPT / Local LLM / DB)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic==2.7.1",
+    "python-dotenv==1.0.1",
+    "openai==1.35.0",
+    "asyncpg==0.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.2.2",
+    "pytest-asyncio==0.23.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
