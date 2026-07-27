@@ -25,7 +25,7 @@ class OpenAIService(BaseLLMApiInterface):
     async def chat(self, prompt: str, model: Optional[str], max_tokens: int) -> ChatResponse:
         _model = model or self.default_model()
         response = await self._client.chat.completions.create(
-            model=_model, max_tokens=max_tokens,
+            model=_model, max_completion_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
         return ChatResponse(provider=AIProvider.GPT, model=_model, content=response.choices[0].message.content)
@@ -33,7 +33,7 @@ class OpenAIService(BaseLLMApiInterface):
     async def stream_chat(self, prompt: str, model: Optional[str], max_tokens: int) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         stream = await self._client.chat.completions.create(
-            model=_model, max_tokens=max_tokens,
+            model=_model, max_completion_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
