@@ -54,9 +54,10 @@ class RestChannel(BaseChannelInterface):
         prompt = payload["prompt"]
         model = payload.get("model")
         max_tokens = payload.get("max_tokens", 1024)
+        temperature = payload.get("temperature")
 
         if stream:
-            return self._client.stream_chat(prompt, model, max_tokens)
+            return self._client.stream_chat(prompt, model, max_tokens, temperature)
 
-        response = await self._client.chat(prompt, model, max_tokens)
+        response = await self._client.chat(prompt, model, max_tokens, temperature)
         return response.content

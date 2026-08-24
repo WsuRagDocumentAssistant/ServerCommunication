@@ -40,15 +40,20 @@ class Controller:
         logger.info("[Controller] 인프라 계층 초기화 중...")
         db = self.config.database
 
-        self.db = DatabaseService(
-            host=db.host,
-            port=db.port,
-            user=db.user,
-            password=db.password,
-            database=db.name,
-            min_size=db.pool_min,
-            max_size=db.pool_max,
-        )
+        try:
+            self.db = DatabaseService(
+                host=db.host,
+                port=db.port,
+                user=db.user,
+                password=db.password,
+                database=db.name,
+                min_size=db.pool_min,
+                max_size=db.pool_max,
+            )
+        except RuntimeError as e:
+            logger.warning(f"[Controller] DB 드라이버 없음, DB 없이 진행: {e}")
+            return
+
         if db.auto_connect:
             try:
                 await self.db.init()

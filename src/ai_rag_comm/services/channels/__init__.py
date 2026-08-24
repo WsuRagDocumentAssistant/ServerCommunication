@@ -1,5 +1,4 @@
-from .transport import Transport
 from .rest_channel import RestChannel
-from .socket_channel import SocketChannel
+from .local_llm_channel import LocalLLMChannel
 
-__all__ = ["Transport", "RestChannel", "SocketChannel"]
+__all__ = ["RestChannel", "LocalLLMChannel"]

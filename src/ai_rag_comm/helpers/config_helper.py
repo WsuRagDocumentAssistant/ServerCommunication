@@ -8,12 +8,11 @@ config.json + .env 를 읽어 Config 객체로 반환
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional, Union
 
 from dotenv import load_dotenv
-
-_ROOT = Path(__file__).resolve().parents[3]
 
 
 @dataclass
@@ -35,9 +34,10 @@ class DatabaseConfig:
 
 @dataclass
 class LocalLLMConfig:
-    host: str
-    port: int
+    base_url: str
+    model: str
     timeout: float
+    headers: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -54,10 +54,12 @@ class Config:
     llm_api: LLMApiConfig
 
 
-def load_config() -> Config:
-    load_dotenv(_ROOT / ".env")
+def load_config(root: Optional[Union[str, Path]] = None) -> Config:
+    root = Path(root or os.environ.get("APP_ROOT") or Path.cwd())
 
-    with open(_ROOT / "config.json", encoding="utf-8-sig") as f:
+    load_dotenv(root / ".env")
+
+    with open(root / "config.json", encoding="utf-8-sig") as f:
         raw = json.load(f)
 
     s = raw["server"]
@@ -73,16 +75,17 @@ def load_config() -> Config:
             host=db["host"],
             port=db["port"],
             name=db["name"],
-            user=os.environ["DB_USER"],
-            password=os.environ["DB_PASSWORD"],
+            user=os.environ.get("DB_USER", ""),
+            password=os.environ.get("DB_PASSWORD", ""),
             pool_min=db["pool_min"],
             pool_max=db["pool_max"],
             auto_connect=db["auto_connect"],
         ),
         local_llm=LocalLLMConfig(
-            host=local_llm["host"],
-            port=local_llm["port"],
+            base_url=local_llm["base_url"],
+            model=local_llm["model"],
             timeout=local_llm["timeout"],
+            headers=local_llm.get("headers", {}),
         ),
         llm_api=LLMApiConfig(
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),

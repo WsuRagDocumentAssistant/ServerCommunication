@@ -1,6 +1,6 @@
-pydantic==2.7.1
-python-dotenv==1.0.1
-openai==2.48.0
+pydantic>=2.7
+python-dotenv>=1.0
+openai>=2.48
+asyncpg>=0.29
 pytest==8.2.2
 pytest-asyncio==0.23.7
-asyncpg==0.29.0

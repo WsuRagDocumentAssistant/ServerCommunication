@@ -3,9 +3,10 @@
     "log_level": "INFO"
   },
   "local_llm": {
-    "host": "10.101.96.71",
-    "port": 8001,
-    "timeout": 30.0
+    "base_url": "http://117.16.166.22/v1",
+    "model": "gemma-4-12B-it",
+    "timeout": 30.0,
+    "headers": { "x-user-id": "npark-01" }
   },
   "database": {
     "host": "/tmp",

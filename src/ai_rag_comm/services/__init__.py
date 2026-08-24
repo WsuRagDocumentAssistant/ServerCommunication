@@ -1,7 +1,7 @@
 from .llm_api import OpenAIService
-from .channels import Transport, RestChannel, SocketChannel
+from .channels import RestChannel, LocalLLMChannel
 
 __all__ = [
     "OpenAIService",
-    "Transport", "RestChannel", "SocketChannel",
+    "RestChannel", "LocalLLMChannel",
 ]

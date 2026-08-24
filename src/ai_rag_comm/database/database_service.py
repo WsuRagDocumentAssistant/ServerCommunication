@@ -6,17 +6,23 @@ PostgreSQL 연결 관리
 - 트랜잭션 관리
 """
 
+from __future__ import annotations
+
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, Optional
-
-import asyncpg
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
     def __init__(self, host: str, port: int, user: str, password: str, database: str, min_size: int = 2, max_size: int = 10):
+        try:
+            import asyncpg
+            self._asyncpg = asyncpg
+        except ImportError:
+            raise RuntimeError("asyncpg 패키지가 설치되지 않았습니다. pip install 'ai-rag-comm[db]'로 설치하세요.")
+
         self.host = host
         self.port = port
         self.user = user
@@ -25,7 +31,7 @@ class DatabaseService:
         self.min_size = min_size
         self.max_size = max_size
 
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: Optional[Any] = None
         self.is_connected = False
 
     async def init(self) -> None:
@@ -39,7 +45,7 @@ class DatabaseService:
 
     async def _init_connect(self) -> None:
         try:
-            self._pool = await asyncpg.create_pool(
+            self._pool = await self._asyncpg.create_pool(
                 host=self.host,
                 port=self.port,
                 user=self.user,

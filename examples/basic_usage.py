@@ -11,7 +11,7 @@ import logging
 from ai_rag_comm import (
     Controller,
     RestChannel,
-    SocketChannel,
+    LocalLLMChannel,
     AIProvider,
     load_config,
     setup_logging,
@@ -34,12 +34,13 @@ async def main() -> None:
         response = await rest.call({"prompt": "안녕", "max_tokens": 256}, stream=False)
         logger.info(f"[GPT] {response}")
 
-        socket = SocketChannel(
-            services["local_llm_config"].host,
-            services["local_llm_config"].port,
+        local = LocalLLMChannel(
+            services["local_llm_config"].base_url,
+            services["local_llm_config"].model,
+            services["local_llm_config"].headers,
             services["local_llm_config"].timeout,
         )
-        response = await socket.call({"prompt": "안녕"}, stream=False)
+        response = await local.call({"prompt": "안녕"}, stream=False)
         logger.info(f"[Local LLM] {response}")
 
         rows = await services["db"].fetch("SELECT 1")
