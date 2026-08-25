@@ -35,27 +35,33 @@ class OpenAIService(BaseLLMApiInterface):
     def default_model(self) -> str:
         return self._default_model
 
-    def _extra_kwargs(self, temperature: Optional[float], response_format: Optional[dict]) -> dict:
+    def _extra_kwargs(self, temperature: Optional[float], response_format: Optional[dict], strict: bool) -> dict:
         kwargs = {}
         if temperature is not None:
             kwargs["temperature"] = temperature
         if response_format is not None:
             kwargs["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": "response", "schema": response_format, "strict": True},
+                "json_schema": {"name": "response", "schema": response_format, "strict": strict},
             }
         return kwargs
+
+    def _messages(self, prompt: str, system: Optional[str]) -> list:
+        messages = [{"role": "system", "content": system}] if system else []
+        return messages + [{"role": "user", "content": prompt}]
 
     async def chat(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float] = None,
         response_format: Optional[dict] = None,
+        strict: bool = True,
+        system: Optional[str] = None,
     ) -> ChatResponse:
         _model = model or self.default_model()
         response = await self._client.chat.completions.create(
             model=_model, max_completion_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-            **self._extra_kwargs(temperature, response_format),
+            messages=self._messages(prompt, system),
+            **self._extra_kwargs(temperature, response_format, strict),
         )
         return ChatResponse(provider=AIProvider.GPT, model=_model, content=response.choices[0].message.content)
 
@@ -63,15 +69,20 @@ class OpenAIService(BaseLLMApiInterface):
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float] = None,
         response_format: Optional[dict] = None,
+        strict: bool = True,
+        system: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         stream = await self._client.chat.completions.create(
             model=_model, max_completion_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            messages=self._messages(prompt, system),
             stream=True,
-            **self._extra_kwargs(temperature, response_format),
+            **self._extra_kwargs(temperature, response_format, strict),
         )
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
                 yield delta
+
+    async def aclose(self) -> None:
+        await self._client.close()

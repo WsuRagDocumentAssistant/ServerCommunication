@@ -46,6 +46,7 @@ class LLMApiConfig:
     anthropic_api_key: str
     gemini_api_key: str
     default_models: dict
+    timeout: float
 
 
 @dataclass
@@ -94,5 +95,6 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             default_models=llm_api["default_models"],
+            timeout=llm_api.get("timeout", 60.0),
         ),
     )

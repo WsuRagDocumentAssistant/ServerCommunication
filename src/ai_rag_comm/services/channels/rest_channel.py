@@ -37,7 +37,7 @@ def _build_client(config, provider: AIProvider, model: Optional[str], api_key: O
     resolved_api_key = api_key or getattr(config, entry["api_key_field"])
     resolved_model = model or config.default_models[entry["model_key"]]
 
-    client = entry["client_cls"](api_key=resolved_api_key, default_model=resolved_model)
+    client = entry["client_cls"](api_key=resolved_api_key, default_model=resolved_model, timeout=config.timeout)
     _client_cache[cache_key] = client
     return client
 
@@ -58,9 +58,11 @@ class RestChannel(BaseChannelInterface):
         max_tokens = payload.get("max_tokens", 1024)
         temperature = payload.get("temperature")
         response_format = payload.get("response_format")
+        strict = payload.get("strict", True)
+        system = payload.get("system")
 
         if stream:
-            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format)
+            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format, strict, system)
 
-        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format)
+        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format, strict, system)
         return response.content

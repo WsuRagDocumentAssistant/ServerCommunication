@@ -11,6 +11,12 @@ from typing import AsyncGenerator, Optional, Union
 from ...interface import BaseChannelInterface
 from ..llm_api import OpenAIService
 
+_client_cache: dict[tuple, OpenAIService] = {}
+
+
+def _cache_key(base_url: str, model: str, headers: Optional[dict], timeout: Optional[float]) -> tuple:
+    return (base_url, model, tuple(sorted((headers or {}).items())), timeout)
+
 
 class LocalLLMChannel(BaseChannelInterface):
     def __init__(
@@ -20,6 +26,11 @@ class LocalLLMChannel(BaseChannelInterface):
         headers: Optional[dict] = None,
         timeout: Optional[float] = None,
     ):
+        key = _cache_key(base_url, model, headers, timeout)
+        if key in _client_cache:
+            self._client = _client_cache[key]
+            return
+
         # AsyncOpenAI는 api_key가 없으면 생성 자체를 거부한다. 로컬 엔드포인트는 이 값을
         # 쓰지 않지만, Authorization: Bearer <값> 헤더로 그대로 전송되니 문제가 되면
         # 게이트웨이 쪽에서 해당 헤더를 무시하도록 맞춰야 한다.
@@ -30,6 +41,7 @@ class LocalLLMChannel(BaseChannelInterface):
             default_headers=headers,
             timeout=timeout,
         )
+        _client_cache[key] = self._client
 
     async def call(self, payload: dict, *, stream: bool = False) -> Union[str, AsyncGenerator[str, None]]:
         prompt = payload["prompt"]
@@ -37,9 +49,14 @@ class LocalLLMChannel(BaseChannelInterface):
         max_tokens = payload.get("max_tokens", 1024)
         temperature = payload.get("temperature")
         response_format = payload.get("response_format")
+        strict = payload.get("strict", True)
+        system = payload.get("system")
 
         if stream:
-            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format)
+            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format, strict, system)
 
-        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format)
+        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format, strict, system)
         return response.content
+
+    async def aclose(self) -> None:
+        await self._client.aclose()

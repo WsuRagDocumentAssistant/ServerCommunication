@@ -17,6 +17,7 @@
     "auto_connect": true
   },
   "llm_api": {
+    "timeout": 60.0,
     "default_models": {
       "gpt": "gpt-5.5",
       "claude": "claude-sonnet-5-0",
