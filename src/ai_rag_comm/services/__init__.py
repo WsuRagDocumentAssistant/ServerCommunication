@@ -1,7 +1,7 @@
-from .llm_api import OpenAIService
+from .llm_api import OpenAIService, ClaudeService, GeminiService
 from .channels import RestChannel, LocalLLMChannel
 
 __all__ = [
-    "OpenAIService",
+    "OpenAIService", "ClaudeService", "GeminiService",
     "RestChannel", "LocalLLMChannel",
 ]

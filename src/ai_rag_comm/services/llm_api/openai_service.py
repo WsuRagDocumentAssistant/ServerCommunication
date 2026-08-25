@@ -35,30 +35,41 @@ class OpenAIService(BaseLLMApiInterface):
     def default_model(self) -> str:
         return self._default_model
 
+    def _extra_kwargs(self, temperature: Optional[float], response_format: Optional[dict]) -> dict:
+        kwargs = {}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if response_format is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": response_format, "strict": True},
+            }
+        return kwargs
+
     async def chat(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float] = None,
+        response_format: Optional[dict] = None,
     ) -> ChatResponse:
         _model = model or self.default_model()
-        kwargs = {} if temperature is None else {"temperature": temperature}
         response = await self._client.chat.completions.create(
             model=_model, max_completion_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
-            **kwargs,
+            **self._extra_kwargs(temperature, response_format),
         )
         return ChatResponse(provider=AIProvider.GPT, model=_model, content=response.choices[0].message.content)
 
     async def stream_chat(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float] = None,
+        response_format: Optional[dict] = None,
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
-        kwargs = {} if temperature is None else {"temperature": temperature}
         stream = await self._client.chat.completions.create(
             model=_model, max_completion_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
-            **kwargs,
+            **self._extra_kwargs(temperature, response_format),
         )
         async for chunk in stream:
             delta = chunk.choices[0].delta.content

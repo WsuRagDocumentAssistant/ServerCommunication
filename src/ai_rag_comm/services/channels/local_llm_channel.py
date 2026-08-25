@@ -36,9 +36,10 @@ class LocalLLMChannel(BaseChannelInterface):
         model = payload.get("model")
         max_tokens = payload.get("max_tokens", 1024)
         temperature = payload.get("temperature")
+        response_format = payload.get("response_format")
 
         if stream:
-            return self._client.stream_chat(prompt, model, max_tokens, temperature)
+            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format)
 
-        response = await self._client.chat(prompt, model, max_tokens, temperature)
+        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format)
         return response.content

@@ -1,23 +1,25 @@
 """
 rest_channel.py
-외부 LLM API(GPT) REST 채널
+외부 LLM API(GPT/Claude/Gemini) REST 채널
 - 프로바이더 조회/생성 로직(예전 llm_api_service.py)을 여기로 흡수함
-- 실제 구현체는 services/llm_api/ 에 있음 (현재 GPT만 지원)
+- 실제 구현체는 services/llm_api/ 에 있음
 """
 
 from typing import AsyncGenerator, Optional, Union
 
 from ...interface import BaseChannelInterface, BaseLLMApiInterface
 from ...schemas import AIProvider
-from ..llm_api import OpenAIService
+from ..llm_api import OpenAIService, ClaudeService, GeminiService
 
 # ─────────────────────────────────────────────
 # 프로바이더 레지스트리
 # provider별로 사용할 클라이언트 클래스와, config에서 api_key/기본 모델을
-# 꺼내올 위치(키 이름)를 선언적으로 정의한다. 현재는 GPT만 등록되어 있음.
+# 꺼내올 위치(키 이름)를 선언적으로 정의한다.
 # ─────────────────────────────────────────────
 PROVIDER_REGISTRY: dict[AIProvider, dict] = {
     AIProvider.GPT: {"client_cls": OpenAIService, "api_key_field": "openai_api_key", "model_key": "gpt"},
+    AIProvider.CLAUDE: {"client_cls": ClaudeService, "api_key_field": "anthropic_api_key", "model_key": "claude"},
+    AIProvider.GEMINI: {"client_cls": GeminiService, "api_key_field": "gemini_api_key", "model_key": "gemini"},
 }
 
 _client_cache: dict[tuple, BaseLLMApiInterface] = {}
@@ -55,9 +57,10 @@ class RestChannel(BaseChannelInterface):
         model = payload.get("model")
         max_tokens = payload.get("max_tokens", 1024)
         temperature = payload.get("temperature")
+        response_format = payload.get("response_format")
 
         if stream:
-            return self._client.stream_chat(prompt, model, max_tokens, temperature)
+            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format)
 
-        response = await self._client.chat(prompt, model, max_tokens, temperature)
+        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format)
         return response.content

@@ -43,6 +43,8 @@ class LocalLLMConfig:
 @dataclass
 class LLMApiConfig:
     openai_api_key: str
+    anthropic_api_key: str
+    gemini_api_key: str
     default_models: dict
 
 
@@ -89,6 +91,8 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
         ),
         llm_api=LLMApiConfig(
             openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
+            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             default_models=llm_api["default_models"],
         ),
     )

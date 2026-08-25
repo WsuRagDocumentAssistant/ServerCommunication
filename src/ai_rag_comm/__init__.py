@@ -1,18 +1,18 @@
 """
 ai_rag_comm
 RAG_Router(Gateway)가 같은 프로세스에서 import해서 쓰는 내부 통신 라이브러리.
-LLM API(GPT) 호출 / 로컬 LLM 호출 / DB 호출 3가지만 제공한다.
+LLM API(GPT/Claude/Gemini) 호출 / 로컬 LLM 호출 / DB 호출 3가지를 제공한다.
 """
 
 from .core import Controller
-from .services import RestChannel, LocalLLMChannel, OpenAIService
+from .services import RestChannel, LocalLLMChannel, OpenAIService, ClaudeService, GeminiService
 from .database import DatabaseService
 from .helpers import load_config, setup_logging, Config
 from .schemas import AIProvider, ChatRequest, ChatResponse
 
 __all__ = [
     "Controller",
-    "RestChannel", "LocalLLMChannel", "OpenAIService",
+    "RestChannel", "LocalLLMChannel", "OpenAIService", "ClaudeService", "GeminiService",
     "DatabaseService",
     "load_config", "setup_logging", "Config",
     "AIProvider", "ChatRequest", "ChatResponse",

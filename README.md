@@ -13,7 +13,7 @@ RAG 시스템 전체 아키텍처 중 **내부 통신(LLM API / Local LLM / DB) 
 
 ## 지원하는 통신 3가지
 
-1. **LLM API 호출** — GPT(OpenAI)만 지원 (`RestChannel`)
+1. **LLM API 호출** — GPT(OpenAI) / Claude(Anthropic) / Gemini(Google) 지원 (`RestChannel`)
 2. **Local LLM 호출** — 사내 KServe로 서빙되는 OpenAI 호환 HTTP 엔드포인트 호출 (`LocalLLMChannel`)
 3. **DB 호출** — PostgreSQL 조회/저장
 
@@ -41,7 +41,9 @@ src/ai_rag_comm/                 # import 대상 패키지 (import ai_rag_comm)
 │
 ├── services/                    # 실제로 일을 처리하는 코드
 │   ├── llm_api/
-│   │   └── openai_service.py    #   OpenAI 호환 HTTP 클라이언트 (base_url/headers로 다른 엔드포인트도 가리킴)
+│   │   ├── openai_service.py    #   OpenAI 호환 HTTP 클라이언트 (base_url/headers로 다른 엔드포인트도 가리킴)
+│   │   ├── claude_service.py    #   Claude(Anthropic) 클라이언트
+│   │   └── gemini_service.py    #   Gemini(Google, google-genai) 클라이언트
 │   └── channels/
 │       ├── rest_channel.py      #   LLM API(GPT) 호출
 │       └── local_llm_channel.py #   로컬 LLM(KServe, OpenAI 호환) 호출
@@ -56,7 +58,7 @@ src/ai_rag_comm/                 # import 대상 패키지 (import ai_rag_comm)
 │   └── base_repository_interface.py #   BaseRepositoryInterface
 │
 ├── schemas/                     # 데이터 객체(DTO) 정의
-│   ├── llm_api_schemas.py       #   AIProvider(GPT만), ChatRequest, ChatResponse
+│   ├── llm_api_schemas.py       #   AIProvider(GPT/CLAUDE/GEMINI), ChatRequest, ChatResponse
 │   └── db_schemas.py            #   DB 데이터 객체 정의 자리 (스키마 미확정, 비어 있음)
 │
 └── helpers/
@@ -84,12 +86,19 @@ pip install -e /path/to/ai_rag_system
 pip install "git+https://github.com/<org>/ai_rag_system.git"
 ```
 
-DB 조회까지 쓸 거면 `[db]` extra로 `asyncpg`를 같이 설치합니다. LLM API/Local LLM 호출만 쓸 거라면 이 extra
-없이 설치해도 됩니다 (import 시점에는 문제없고, `DatabaseService`를 실제로 생성하려는 순간에만 에러가 남).
+필요한 provider/기능만 extra로 골라 설치합니다. `RestChannel`/`LocalLLMChannel`(GPT, 로컬 LLM)은 기본
+의존성만으로 동작하고, Claude/Gemini/DB는 실제로 그 클라이언트를 생성하는 순간에만 필요합니다 — extra
+없이 설치해도 import 자체는 되고, 안 쓰는 provider의 SDK가 없어도 다른 provider 호출에는 영향 없음.
 
 ```bash
-pip install -e "/path/to/ai_rag_system[db]"
+pip install -e "/path/to/ai_rag_system[claude,gemini,db]"
 ```
+
+| extra | 설치되는 패키지 | 없으면 |
+|---|---|---|
+| `claude` | `anthropic` | `RestChannel(..., AIProvider.CLAUDE)` 생성 시 `RuntimeError` |
+| `gemini` | `google-genai` | `RestChannel(..., AIProvider.GEMINI)` 생성 시 `RuntimeError` |
+| `db` | `asyncpg` | `DatabaseService` 생성 시 `RuntimeError` (`Controller.init()`은 `db=None`으로 계속 진행) |
 
 설치하면 `import ai_rag_comm`으로 바로 쓸 수 있습니다. `config.json`/`.env`는 이 저장소 루트에 있는 것을
 그대로 쓰거나, 설치한 쪽 프로젝트 루트에 동일한 형식으로 준비해두면 됩니다 (아래 [환경 설정](#환경-설정) 참고).
@@ -150,7 +159,7 @@ asyncio.run(main())
 
 ## 통신 사용법
 
-### 1. LLM API 호출 (GPT만)
+### 1. LLM API 호출 (GPT / Claude / Gemini)
 
 ```python
 from ai_rag_comm import RestChannel, AIProvider
@@ -160,12 +169,46 @@ response = await channel.call(
     {"prompt": "프롬프트", "max_tokens": 1024, "temperature": 0.0},
     stream=False,
 )
+
+# provider만 바꾸면 나머지 호출부는 동일
+claude = RestChannel(llm_api_config, AIProvider.CLAUDE, "claude-sonnet-4-6")
+gemini = RestChannel(llm_api_config, AIProvider.GEMINI, "gemini-3.5-flash")
 ```
 
-- `ai_rag_comm/services/channels/rest_channel.py`의 `PROVIDER_REGISTRY`에는 `AIProvider.GPT` 하나만 등록되어 있음
-- 실제 OpenAI SDK 호출은 `ai_rag_comm/services/llm_api/openai_service.py`의 `OpenAIService`가 담당
+- `ai_rag_comm/services/channels/rest_channel.py`의 `PROVIDER_REGISTRY`에 `AIProvider.GPT`/`CLAUDE`/`GEMINI`
+  세 개가 등록되어 있고, 각각 `config.llm_api.default_models["gpt"|"claude"|"gemini"]`와
+  `openai_api_key`/`anthropic_api_key`/`gemini_api_key`를 사용함
+- 실제 SDK 호출은 `services/llm_api/`의 `OpenAIService`/`ClaudeService`/`GeminiService`가 각각 담당
 - `temperature`는 생략 가능(`payload`에 안 넣으면 API에 아예 안 보냄). 일부 모델(`gpt-5.5`)은
   `temperature=0`을 거부하므로, 그런 모델을 쓸 때는 지정하지 않는 편이 안전함
+
+#### 구조화 출력 (`response_format`)
+
+프롬프트로 "JSON으로 답해"라고만 요구하면 모델이 코드펜스나 설명을 앞뒤에 붙여서 파싱이 깨질 수 있습니다.
+`response_format`에 순수 JSON Schema(object)를 넘기면 API가 스키마를 강제해서 응답이 항상 그 스키마를
+따르는 JSON 텍스트가 됩니다 (GPT/로컬 LLM/Claude/Gemini 넷 다 지원 확인).
+
+```python
+schema = {
+    "type": "object",
+    "properties": {"name": {"type": "string"}, "email": {"type": "string"}},
+    "required": ["name", "email"],
+    "additionalProperties": False,
+}
+
+response = await channel.call(
+    {"prompt": "이름과 이메일을 추출해줘: ...", "response_format": schema},
+    stream=False,
+)
+import json
+data = json.loads(response)  # 스키마를 따르는 JSON이 보장됨
+```
+
+- `response_format`은 provider에 상관없이 **항상 순수 JSON Schema dict**로 넘김. 각 서비스가 내부에서
+  provider별 파라미터로 감싸서 보냄 — GPT/로컬 LLM은 `response_format={"type": "json_schema", ...}`,
+  Claude는 `output_config={"format": {"type": "json_schema", ...}}`, Gemini는
+  `response_mime_type="application/json"` + `response_json_schema=...`
+- 생략하면(`None`) 기존처럼 평문 응답. 스키마를 강제할 필요가 있는 추출/분류 작업에만 사용
 
 ### 2. Local LLM 호출
 
@@ -185,6 +228,7 @@ response = await channel.call({"prompt": "프롬프트", "temperature": 0.0}, st
   재사용하지만, 인증이 API 키가 아니라 커스텀 헤더라서 `RestChannel`/`AIProvider`와는 **별개의 채널**로 분리함
 - `temperature=0`처럼 GPT가 거부하는 옵션도 로컬 모델에서는 받아준다 (같은 입력에 같은 결과가 필요한
   추출 작업 등에 유용)
+- `response_format`도 동일하게 지원 (내부적으로 `OpenAIService`를 그대로 씀)
 
 ### 3. DB 호출
 
@@ -219,7 +263,13 @@ rows = await services["db"].fetch("SELECT * FROM table WHERE id = $1", 1)
     "headers": { "x-user-id": "npark-01" }
   },
   "database": { "host": "/tmp", "port": 5432, "name": "ragdb", "pool_min": 2, "pool_max": 10, "auto_connect": true },
-  "llm_api": { "default_models": { "gpt": "gpt-5.5" } }
+  "llm_api": {
+    "default_models": {
+      "gpt": "gpt-5.5",
+      "claude": "claude-sonnet-4-6",
+      "gemini": "gemini-3.5-flash"
+    }
+  }
 }
 ```
 
@@ -227,9 +277,13 @@ rows = await services["db"].fetch("SELECT * FROM table WHERE id = $1", 1)
 
 ```env
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
 DB_USER=raguser
 DB_PASSWORD=...
 ```
+
+쓰지 않는 provider의 키는 빈 값으로 둬도 됩니다 — 그 provider를 실제로 호출하기 전까지는 참조되지 않습니다.
 
 ---
 
@@ -275,3 +329,23 @@ pip 패키지(`ai-rag-comm`)로 배포 가능하도록 전환함:
 - **`asyncpg`를 `[db]` extra로 분리**: `DatabaseService`의 `import asyncpg`를 지연 임포트로 바꿔서,
   LLM API/Local LLM 호출만 쓰는 경우 `asyncpg` 없이도 `import ai_rag_comm`과 `Controller.init()`이 동작함
   (DB가 필요 없으면 `services["db"]`가 `None`)
+
+**Claude/Gemini 재추가**: `AIProvider`에 `CLAUDE`/`GEMINI`를 다시 추가하고, `PROVIDER_REGISTRY`에
+`ClaudeService`/`GeminiService`를 등록함 (이전 "GPT만 남도록 대폭 축소" 단계에서 삭제됐던 걸 복원).
+
+- `ClaudeService`는 `anthropic.AsyncAnthropic` 사용, 응답에서 `type == "text"`인 블록만 이어붙여 파싱
+  (thinking 등 다른 타입 블록이 섞여도 안전하게 텍스트만 추출)
+- `GeminiService`는 `google-generativeai`가 아니라 후속 통합 SDK `google-genai`(`google.genai.Client`) 사용 —
+  `google-generativeai`는 지원 종료(EOL)되어 실제로 `FutureWarning`이 뜨는 걸 확인하고 교체함. 네이티브
+  비동기 API(`client.aio.models.generate_content[_stream]`)를 그대로 씀 (기존처럼 스레드풀로 감싸지 않음)
+- `LLMApiConfig`에 `anthropic_api_key`/`gemini_api_key` 추가, `config.json`의 `default_models`에
+  `claude`/`gemini` 항목 추가
+- `anthropic`/`google-genai`도 `[claude]`/`[gemini]` extra로 분리 — 안 쓰는 provider의 SDK를 강제로
+  설치하지 않아도 됨 (openai_service.py와 동일한 지연 임포트 + `RuntimeError` 패턴)
+
+**`response_format`(구조화 출력) 추가**: `chat()`/`stream_chat()`/`RestChannel`/`LocalLLMChannel`이
+`response_format`(순수 JSON Schema dict)을 받아서 각 provider의 구조화 출력 파라미터로 감싸 전달함
+(GPT/로컬 LLM `response_format={"type": "json_schema", ...}`, Claude
+`output_config={"format": {"type": "json_schema", ...}}`, Gemini `response_mime_type` +
+`response_json_schema`). 전엔 프롬프트로 JSON을 요구하고 평문에서 파싱해야 해서 코드펜스나 설명이
+섞이면 깨졌는데, 이제 API가 스키마를 보장함. `None`이면 기존처럼 평문 응답.

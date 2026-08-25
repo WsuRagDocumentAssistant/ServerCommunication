@@ -1,6 +1,8 @@
 pydantic>=2.7
 python-dotenv>=1.0
 openai>=2.48
+anthropic>=0.40
+google-genai>=1.0
 asyncpg>=0.29
 pytest==8.2.2
 pytest-asyncio==0.23.7
