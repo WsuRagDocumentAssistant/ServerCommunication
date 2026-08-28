@@ -12,13 +12,17 @@ from ...schemas import AIProvider, ChatResponse
 
 class GeminiService(BaseLLMApiInterface):
 
-    def __init__(self, api_key: str, default_model: str, timeout: Optional[float] = None):
+    def __init__(
+        self, api_key: str, default_model: str, timeout: Optional[float] = None,
+        enable_web_search: bool = False,
+    ):
         try:
             from google import genai
             http_options = genai.types.HttpOptions(timeout=int(timeout * 1000)) if timeout is not None else None
             self._client = genai.Client(api_key=api_key, http_options=http_options)
             self._genai_types = genai.types
             self._default_model = default_model
+            self._enable_web_search = enable_web_search
         except ImportError:
             raise RuntimeError("google-genai 패키지가 설치되지 않았습니다.")
 
@@ -35,6 +39,12 @@ class GeminiService(BaseLLMApiInterface):
             kwargs["response_json_schema"] = response_format
         if system:
             kwargs["system_instruction"] = system
+        if self._enable_web_search:
+            # 검색(grounding) 필요 여부는 모델이 스스로 판단한다.
+            # 주의: Gemini는 tools(google_search)와 response_schema를 같은 요청에 함께 쓰는 걸
+            # 지원하지 않는 것으로 알려져 있다(둘 다 켜면 API가 거부할 수 있음, 실측 미검증).
+            # 구조화 출력이 필요한 호출에는 웹서치를 함께 켜지 않는 걸 권장.
+            kwargs["tools"] = [self._genai_types.Tool(google_search=self._genai_types.GoogleSearch())]
         return self._genai_types.GenerateContentConfig(
             max_output_tokens=max_tokens, temperature=temperature, **kwargs,
         )

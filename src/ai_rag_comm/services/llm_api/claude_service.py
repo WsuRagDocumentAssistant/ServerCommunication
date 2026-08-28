@@ -14,11 +14,16 @@ logger = logging.getLogger(__name__)
 
 class ClaudeService(BaseLLMApiInterface):
 
-    def __init__(self, api_key: str, default_model: str, timeout: Optional[float] = None):
+    def __init__(
+        self, api_key: str, default_model: str, timeout: Optional[float] = None,
+        enable_web_search: bool = False, web_search_max_uses: int = 5,
+    ):
         try:
             import anthropic
             self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
             self._default_model = default_model
+            self._enable_web_search = enable_web_search
+            self._web_search_max_uses = web_search_max_uses
         except ImportError:
             raise RuntimeError("anthropic 패키지가 설치되지 않았습니다.")
 
@@ -33,6 +38,13 @@ class ClaudeService(BaseLLMApiInterface):
             logger.warning("Claude는 temperature를 지원하지 않습니다. 무시합니다.")
         if response_format is not None:
             kwargs["output_config"] = {"format": {"type": "json_schema", "schema": response_format}}
+        if self._enable_web_search:
+            # 검색 여부는 모델이 스스로 판단한다 — max_uses는 상한일 뿐, 매번 그만큼 쓰는 게 아니다.
+            kwargs["tools"] = [{
+                "type": "web_search_20260209",
+                "name": "web_search",
+                "max_uses": self._web_search_max_uses,
+            }]
         return kwargs
 
     async def chat(

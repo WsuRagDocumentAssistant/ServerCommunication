@@ -1,9 +1,8 @@
 # ai_rag_comm — 내부 통신 라이브러리
 
 RAG 시스템 전체 아키텍처 중 **내부 통신(LLM API / Local LLM / DB) 계층만** 구현된 pip 패키지입니다.
-`RAG_Router`(Gateway)가 관리하는 별도 저장소이며, 이 프로젝트는 Gateway와 **같은 파이썬 프로세스**에
-`import`되어 실제 작업(GPT 호출, 로컬 LLM 호출, DB 조회)을 처리하는 라이브러리입니다.
-자체 HTTP 서버/엔드포인트는 없으며, Gateway와의 큐 연결은 이 프로젝트 담당자가 아닌 별도 담당자가 관리합니다.
+`ragmodul`(별도 저장소)이 이 라이브러리를 **같은 파이썬 프로세스**에 `import`해서 실제 작업(GPT 호출,
+로컬 LLM 호출, DB 조회)을 처리합니다. 자체 HTTP 서버/엔드포인트는 없습니다.
 
 * Python 3.11.5
 * 순수 라이브러리 (FastAPI/uvicorn 없음) — `pip install -e .`로 설치해서 임포트해서 사용
@@ -75,7 +74,7 @@ src/ai_rag_comm/                 # import 대상 패키지 (import ai_rag_comm)
 
 ## 설치 방법
 
-Gateway(RAG_Router) 등 이 라이브러리를 쓰는 프로세스에서 pip으로 설치합니다. (아직 PyPI에는 올리지 않았고,
+`ragmodul` 등 이 라이브러리를 쓰는 프로세스에서 pip으로 설치합니다. (아직 PyPI에는 올리지 않았고,
 로컬 경로 또는 git 저장소를 직접 가리켜서 설치하는 방식)
 
 ```bash
@@ -151,9 +150,9 @@ asyncio.run(main())
   pip install -r requirements.txt
   python examples/basic_usage.py
   ```
-- **Gateway(RAG_Router)에서 쓸 때**: `Controller.init()`/`.close()`는 Gateway 프로세스의 시작/종료 시점(예: FastAPI
-  `lifespan`)에서 한 번씩만 호출하고, `RestChannel`/`LocalLLMChannel`은 요청이 들어올 때마다 필요한 곳에서 바로
-  인스턴스화해서 씁니다. Gateway와 이 라이브러리는 반드시 **같은 파이썬 프로세스**여야 동작합니다.
+- **`ragmodul`에서 쓸 때**: `Controller.init()`/`.close()`는 `ragmodul` 프로세스의 시작/종료 시점에서
+  한 번씩만 호출하고, `RestChannel`/`LocalLLMChannel`은 요청이 들어올 때마다 필요한 곳에서 바로
+  인스턴스화해서 씁니다. `ragmodul`과 이 라이브러리는 반드시 **같은 파이썬 프로세스**여야 동작합니다.
 
 ---
 
@@ -171,7 +170,7 @@ response = await channel.call(
 )
 
 # provider만 바꾸면 나머지 호출부는 동일
-claude = RestChannel(llm_api_config, AIProvider.CLAUDE, "claude-sonnet-4-6")
+claude = RestChannel(llm_api_config, AIProvider.CLAUDE, "claude-sonnet-5")
 gemini = RestChannel(llm_api_config, AIProvider.GEMINI, "gemini-3.5-flash")
 ```
 
@@ -185,6 +184,31 @@ gemini = RestChannel(llm_api_config, AIProvider.GEMINI, "gemini-3.5-flash")
     로그만 남기고 무시함 (예전엔 그대로 넘겨서 `TypeError`로 죽었음)
   - Gemini / 로컬 LLM은 정상적으로 받음
 - `system`으로 시스템 프롬프트를 지시문/데이터와 분리해서 넘길 수 있음 (아래 참고)
+
+#### 웹서치 (`enable_web_search`)
+
+Claude/Gemini는 SDK 내장(호스팅) 웹서치 도구가 있어서, 켜두면 **검색이 필요한지는 모델이 스스로 판단**해서
+필요할 때만 검색합니다. `RestChannel` 생성 시점(즉 provider별 클라이언트를 만드는 시점)에 켭니다 —
+개별 `call()` 호출마다 켜고 끄는 옵션이 아닙니다.
+
+```python
+claude = RestChannel(llm_api_config, AIProvider.CLAUDE, enable_web_search=True)
+response = await claude.call({"prompt": "오늘 날짜 기준 최신 환율 알려줘"}, stream=False)
+```
+
+- **Claude**: `tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]`로 매핑됨.
+  `max_uses`는 한 요청에서 쓸 수 있는 검색 횟수의 **상한**일 뿐, 그만큼 무조건 검색하는 게 아님
+  (`ClaudeService(..., web_search_max_uses=N)`으로 상한 조절 가능, 기본 5)
+- **Gemini**: `tools=[Tool(google_search=GoogleSearch())]`로 매핑됨(Google Search grounding)
+- **GPT/로컬 LLM**: 지원하지 않음. `enable_web_search=True`를 줘도 무시되고 경고 로그만 남음 —
+  OpenAI 호스팅 웹서치는 `chat.completions.create()`가 아니라 `responses.create()`(Responses API)
+  전용 기능이라, 지금 `OpenAIService`(GPT/로컬 LLM 공용) 구조로는 제공할 수 없음. 나중에 필요해지면
+  `OpenAIService`를 갈아엎지 않고 `chat_with_web_search()` 같은 별도 경로를 Responses API로 추가하는
+  방식을 검토 중 (응답 파싱(`output_text`)/스트리밍 이벤트 구조/`max_output_tokens`가 다 달라서
+  기존 `chat()`과는 분리해야 함)
+- **주의(Gemini)**: `response_format`(구조화 출력)과 `enable_web_search`를 같은 호출에 같이 켜는 건
+  권장하지 않음 — Gemini가 `tools`와 `response_schema`를 함께 받는 걸 지원하지 않는 것으로 알려져 있음
+  (실측 미검증)
 
 #### 구조화 출력 (`response_format`, `strict`)
 
@@ -270,7 +294,7 @@ response = await channel.call({"prompt": "프롬프트", "temperature": 0.0}, st
 - 컨텍스트가 **8192 토큰**(입력+출력 합산)이라 대용량 문서 추출(4~5만 토큰급)은 로컬로 안 되고
   클라우드 provider로만 가능함 — `max_tokens`를 크게 잡으면 입력 자리가 부족해 400이 남
 - `(base_url, model, headers, timeout)`이 같으면 내부적으로 클라이언트를 재사용함(캐시). 같은 조합으로
-  요청마다 새로 인스턴스화해도 연결이 계속 쌓이지 않음. Gateway 종료 시 정리하려면 `await channel.aclose()`
+  요청마다 새로 인스턴스화해도 연결이 계속 쌓이지 않음. 프로세스 종료 시 정리하려면 `await channel.aclose()`
   호출 (`Controller.close()`와 짝을 맞추는 용도)
 
 ### 3. DB 호출
@@ -317,7 +341,7 @@ rows = await services["db"].fetch("SELECT * FROM table WHERE id = $1", 1)
     "timeout": 60.0,
     "default_models": {
       "gpt": "gpt-5.5",
-      "claude": "claude-sonnet-5-0",
+      "claude": "claude-sonnet-5",
       "gemini": "gemini-3.5-flash"
     }
   }
@@ -367,7 +391,11 @@ DB_PASSWORD=...
 
 ## 변경 이력
 
-이번 작업에서 `RAG_Router`(Gateway) 저장소와 네이밍/폴더 스타일을 맞추고, 3가지 통신(LLM API-GPT / Local LLM / DB)만 남도록 정리함:
+이번 작업에서 (당시 참고용으로 공유된) `RAG_Router`(Gateway) 저장소와 네이밍/폴더 스타일을 맞추고,
+3가지 통신(LLM API-GPT / Local LLM / DB)만 남도록 정리함. **실제로 이 라이브러리를 가져다 쓰는 곳은
+`RAG_Router`가 아니라 `ragmodul`이며, 큐/Gateway 구조 없이 코드에서 직접 `import`해서 호출한다** —
+아래 폴더 구조 통일 작업 자체는 유효하지만, "Gateway와 같은 프로세스" 같은 문구는 `ragmodul` 기준으로
+읽으면 됨:
 
 - **폴더/파일명 스타일 통일**
   - `interfaces/` → `interface/`
@@ -434,7 +462,7 @@ pip 패키지(`ai-rag-comm`)로 배포 가능하도록 전환함:
   SDK의 `messages.create()`엔 `temperature`/`top_p` 인자 자체가 없음. 이제 값이 오면 API로 보내지 않고
   경고 로그만 남기고 무시함 (400이 아니라 라이브러리 버그처럼 보이는 크래시였음)
 - **`LocalLLMChannel`에 클라이언트 캐시 + `aclose()` 추가**: README가 안내하는 "요청마다 인스턴스화" 패턴을
-  그대로 쓰면 채널마다 새 `AsyncOpenAI`/연결 풀이 생겨서 오래 도는 Gateway에서 연결이 쌓였음. 이제
+  그대로 쓰면 채널마다 새 `AsyncOpenAI`/연결 풀이 생겨서 오래 도는 프로세스(`ragmodul`)에서 연결이 쌓였음. 이제
   `(base_url, model, headers, timeout)`이 같으면 캐시된 클라이언트를 재사용하고(`RestChannel`과 동일한
   방식), `LocalLLMChannel.aclose()`/`OpenAIService.aclose()`로 정리할 수 있음
 - **`OpenAIService`의 `strict: True` 고정 해제**: 선택 필드가 있는 스키마를 `response_format`으로 넘기면
@@ -449,3 +477,13 @@ pip 패키지(`ai-rag-comm`)로 배포 가능하도록 전환함:
   지시문과 검색된 문서 내용이 한 메시지에 섞였음 (프롬프트 인젝션 경계 없음). `payload["system"]`으로
   분리해서 넘기면 GPT/로컬 LLM은 `system` role 메시지로, Claude는 `messages.create(system=...)`로, Gemini는
   `GenerateContentConfig(system_instruction=...)`로 각각 매핑됨
+
+**Claude/Gemini에 내장 웹서치 도구 추가**: `RestChannel(..., enable_web_search=True)`로 provider별
+호스팅 웹서치를 켤 수 있음. Claude는 `tools=[{"type": "web_search_20260209", ...}]`(구버전
+`web_search_20250305`가 아니라 현재 모델용 최신 변형), Gemini는 `Tool(google_search=GoogleSearch())`로
+매핑됨. GPT/로컬 LLM은 지원 안 함 — OpenAI 호스팅 웹서치는 `chat.completions.create()`가 아니라
+`responses.create()` 전용이라 지금 `OpenAIService` 구조로는 못 붙임(`enable_web_search=True`를 줘도
+경고만 남기고 무시). `PROVIDER_REGISTRY`에 `supports_web_search` 플래그를 추가해서 provider별로 이 옵션을
+받을지 여부를 선언적으로 관리하고, 클라이언트 캐시 키에도 `enable_web_search`를 포함시켜서 웹서치
+켠/끈 인스턴스가 서로 섞이지 않게 함. 이 김에 `config.json`의 `claude` 기본 모델 ID 오타(`claude-sonnet-5-0`
+→ `claude-sonnet-5`, 실재하지 않는 ID였음)도 같이 수정함

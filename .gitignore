@@ -37,3 +37,6 @@ Thumbs.db
 
 # personal config files
 .claude/
+
+# 내부 문서
+docs/
