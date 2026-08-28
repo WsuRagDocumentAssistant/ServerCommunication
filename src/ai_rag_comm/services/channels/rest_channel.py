@@ -19,13 +19,13 @@ logger = logging.getLogger(__name__)
 # provider별로 사용할 클라이언트 클래스와, config에서 api_key/기본 모델을
 # 꺼내올 위치(키 이름)를 선언적으로 정의한다.
 # supports_web_search: 그 provider의 client_cls가 enable_web_search 생성자 인자를
-# 받는지 여부. GPT는 chat.completions.create()로는 OpenAI 호스팅 웹서치를 쓸 수
-# 없어서(Responses API 전용 기능) 아직 지원하지 않는다.
+# 받는지 여부. GPT는 켜지면 OpenAIService가 내부적으로 Chat Completions 대신
+# Responses API(responses.create())로 나간다 (OpenAI 호스팅 웹서치가 그쪽 전용 기능).
 # ─────────────────────────────────────────────
 PROVIDER_REGISTRY: dict[AIProvider, dict] = {
     AIProvider.GPT: {
         "client_cls": OpenAIService, "api_key_field": "openai_api_key",
-        "model_key": "gpt", "supports_web_search": False,
+        "model_key": "gpt", "supports_web_search": True,
     },
     AIProvider.CLAUDE: {
         "client_cls": ClaudeService, "api_key_field": "anthropic_api_key",

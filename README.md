@@ -187,11 +187,12 @@ gemini = RestChannel(llm_api_config, AIProvider.GEMINI, "gemini-3.5-flash")
 
 #### 웹서치 (`enable_web_search`)
 
-Claude/Gemini는 SDK 내장(호스팅) 웹서치 도구가 있어서, 켜두면 **검색이 필요한지는 모델이 스스로 판단**해서
-필요할 때만 검색합니다. `RestChannel` 생성 시점(즉 provider별 클라이언트를 만드는 시점)에 켭니다 —
-개별 `call()` 호출마다 켜고 끄는 옵션이 아닙니다.
+GPT/Claude/Gemini 모두 SDK 내장(호스팅) 웹서치 도구가 있어서, 켜두면 **검색이 필요한지는 모델이 스스로
+판단**해서 필요할 때만 검색합니다. `RestChannel` 생성 시점(즉 provider별 클라이언트를 만드는 시점)에
+켭니다 — 개별 `call()` 호출마다 켜고 끄는 옵션이 아닙니다.
 
 ```python
+gpt = RestChannel(llm_api_config, AIProvider.GPT, enable_web_search=True)
 claude = RestChannel(llm_api_config, AIProvider.CLAUDE, enable_web_search=True)
 response = await claude.call({"prompt": "오늘 날짜 기준 최신 환율 알려줘"}, stream=False)
 ```
@@ -200,12 +201,17 @@ response = await claude.call({"prompt": "오늘 날짜 기준 최신 환율 알�
   `max_uses`는 한 요청에서 쓸 수 있는 검색 횟수의 **상한**일 뿐, 그만큼 무조건 검색하는 게 아님
   (`ClaudeService(..., web_search_max_uses=N)`으로 상한 조절 가능, 기본 5)
 - **Gemini**: `tools=[Tool(google_search=GoogleSearch())]`로 매핑됨(Google Search grounding)
-- **GPT/로컬 LLM**: 지원하지 않음. `enable_web_search=True`를 줘도 무시되고 경고 로그만 남음 —
-  OpenAI 호스팅 웹서치는 `chat.completions.create()`가 아니라 `responses.create()`(Responses API)
-  전용 기능이라, 지금 `OpenAIService`(GPT/로컬 LLM 공용) 구조로는 제공할 수 없음. 나중에 필요해지면
-  `OpenAIService`를 갈아엎지 않고 `chat_with_web_search()` 같은 별도 경로를 Responses API로 추가하는
-  방식을 검토 중 (응답 파싱(`output_text`)/스트리밍 이벤트 구조/`max_output_tokens`가 다 달라서
-  기존 `chat()`과는 분리해야 함)
+- **GPT**: OpenAI 호스팅 웹서치는 `chat.completions.create()`가 아니라 `responses.create()`(Responses
+  API) 전용 기능이라, `enable_web_search=True`를 주면 `OpenAIService`가 그 호출만 내부적으로
+  Chat Completions 대신 **Responses API로 전환**해서 나감 (`enable_web_search=False`인 일반 호출은
+  기존 Chat Completions 그대로). 이 경로에서는 `response_format`(구조화 출력)을 지원하지 않고
+  경고만 남기고 무시함 — 응답 형식이 다른 두 API(`text.format` vs `response_format`)를 억지로 맞추지
+  않고 자유 텍스트 응답으로만 지원함. `temperature`/`system`은 정상 지원됨(`system` → `instructions`로 매핑)
+- **로컬 LLM**: 지원하지 않음 (`LocalLLMChannel`은 `enable_web_search`를 아예 받지 않음). KServe/vLLM
+  백엔드는 OpenAI 호스팅 인프라가 아니라서 Chat Completions든 Responses API든 상관없이 해당 없음
+- **`base_url`을 커스텀 엔드포인트로 돌린 `RestChannel(AIProvider.GPT, ...)`에서 웹서치를 켜는 경우**:
+  Responses API/웹서치는 OpenAI 자체 인프라 기능이라, 그 엔드포인트가 실제로 Responses API를 구현하지
+  않으면 동작하지 않음
 - **주의(Gemini)**: `response_format`(구조화 출력)과 `enable_web_search`를 같은 호출에 같이 켜는 건
   권장하지 않음 — Gemini가 `tools`와 `response_schema`를 함께 받는 걸 지원하지 않는 것으로 알려져 있음
   (실측 미검증)
@@ -478,12 +484,20 @@ pip 패키지(`ai-rag-comm`)로 배포 가능하도록 전환함:
   분리해서 넘기면 GPT/로컬 LLM은 `system` role 메시지로, Claude는 `messages.create(system=...)`로, Gemini는
   `GenerateContentConfig(system_instruction=...)`로 각각 매핑됨
 
-**Claude/Gemini에 내장 웹서치 도구 추가**: `RestChannel(..., enable_web_search=True)`로 provider별
+**GPT/Claude/Gemini에 내장 웹서치 도구 추가**: `RestChannel(..., enable_web_search=True)`로 provider별
 호스팅 웹서치를 켤 수 있음. Claude는 `tools=[{"type": "web_search_20260209", ...}]`(구버전
 `web_search_20250305`가 아니라 현재 모델용 최신 변형), Gemini는 `Tool(google_search=GoogleSearch())`로
-매핑됨. GPT/로컬 LLM은 지원 안 함 — OpenAI 호스팅 웹서치는 `chat.completions.create()`가 아니라
-`responses.create()` 전용이라 지금 `OpenAIService` 구조로는 못 붙임(`enable_web_search=True`를 줘도
-경고만 남기고 무시). `PROVIDER_REGISTRY`에 `supports_web_search` 플래그를 추가해서 provider별로 이 옵션을
-받을지 여부를 선언적으로 관리하고, 클라이언트 캐시 키에도 `enable_web_search`를 포함시켜서 웹서치
-켠/끈 인스턴스가 서로 섞이지 않게 함. 이 김에 `config.json`의 `claude` 기본 모델 ID 오타(`claude-sonnet-5-0`
+매핑됨. `PROVIDER_REGISTRY`에 `supports_web_search` 플래그를 추가해서 provider별로 이 옵션을 받을지
+여부를 선언적으로 관리하고, 클라이언트 캐시 키에도 `enable_web_search`를 포함시켜서 웹서치 켠/끈
+인스턴스가 서로 섞이지 않게 함. 이 김에 `config.json`의 `claude` 기본 모델 ID 오타(`claude-sonnet-5-0`
 → `claude-sonnet-5`, 실재하지 않는 ID였음)도 같이 수정함
+
+**GPT 웹서치는 Responses API로 자동 전환**: OpenAI 호스팅 웹서치는 `chat.completions.create()`가 아니라
+`responses.create()`(Responses API) 전용 기능이라, `OpenAIService(..., enable_web_search=True)`를 켜면
+내부적으로 그 인스턴스의 `chat()`/`stream_chat()` 호출만 Chat Completions 대신 Responses API로 나가도록
+분리함 (`_chat_completions`/`_chat_responses`, `_stream_chat_completions`/`_stream_chat_responses`로
+내부 경로만 갈리고 외부 인터페이스는 동일). Responses API 쪽은 `messages` 대신 `input`+`instructions`,
+`max_completion_tokens` 대신 `max_output_tokens`, 응답은 `choices[0].message.content` 대신
+`output_text`, 스트리밍은 `chunk.choices[0].delta.content` 대신 `response.output_text.delta` 타입
+이벤트의 `.delta`를 씀. `response_format`은 이 경로에서 지원하지 않고(포맷 파라미터 자체가 다름) 경고
+후 무시. `LocalLLMChannel`은 `enable_web_search`를 받지 않아 영향 없음(KServe/vLLM엔 해당 기능이 없음)
