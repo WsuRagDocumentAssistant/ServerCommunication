@@ -54,9 +54,19 @@ class OpenAIService(BaseLLMApiInterface):
             }
         return kwargs
 
-    def _messages(self, prompt: str, system: Optional[str]) -> list:
+    def _user_content(self, prompt: str, images: Optional[list[dict]]):
+        if not images:
+            return prompt
+        content = [{"type": "text", "text": prompt}]
+        content += [
+            {"type": "image_url", "image_url": {"url": f"data:{img['mime_type']};base64,{img['data']}"}}
+            for img in images
+        ]
+        return content
+
+    def _messages(self, prompt: str, system: Optional[str], images: Optional[list[dict]]) -> list:
         messages = [{"role": "system", "content": system}] if system else []
-        return messages + [{"role": "user", "content": prompt}]
+        return messages + [{"role": "user", "content": self._user_content(prompt, images)}]
 
     # ─────────────────────────────────────────
     # Chat Completions 경로 (기본)
@@ -64,11 +74,12 @@ class OpenAIService(BaseLLMApiInterface):
     async def _chat_completions(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float], response_format: Optional[dict], strict: bool, system: Optional[str],
+        images: Optional[list[dict]],
     ) -> ChatResponse:
         _model = model or self.default_model()
         response = await self._client.chat.completions.create(
             model=_model, max_completion_tokens=max_tokens,
-            messages=self._messages(prompt, system),
+            messages=self._messages(prompt, system, images),
             **self._extra_kwargs(temperature, response_format, strict),
         )
         return ChatResponse(provider=AIProvider.GPT, model=_model, content=response.choices[0].message.content)
@@ -76,11 +87,12 @@ class OpenAIService(BaseLLMApiInterface):
     async def _stream_chat_completions(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float], response_format: Optional[dict], strict: bool, system: Optional[str],
+        images: Optional[list[dict]],
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         stream = await self._client.chat.completions.create(
             model=_model, max_completion_tokens=max_tokens,
-            messages=self._messages(prompt, system),
+            messages=self._messages(prompt, system, images),
             stream=True,
             **self._extra_kwargs(temperature, response_format, strict),
         )
@@ -106,13 +118,24 @@ class OpenAIService(BaseLLMApiInterface):
             kwargs["instructions"] = system
         return kwargs
 
+    def _responses_input(self, prompt: str, images: Optional[list[dict]]):
+        if not images:
+            return prompt
+        content = [{"type": "input_text", "text": prompt}]
+        content += [
+            {"type": "input_image", "detail": "auto", "image_url": f"data:{img['mime_type']};base64,{img['data']}"}
+            for img in images
+        ]
+        return [{"role": "user", "content": content}]
+
     async def _chat_responses(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float], response_format: Optional[dict], system: Optional[str],
+        images: Optional[list[dict]],
     ) -> ChatResponse:
         _model = model or self.default_model()
         response = await self._client.responses.create(
-            model=_model, input=prompt, max_output_tokens=max_tokens,
+            model=_model, input=self._responses_input(prompt, images), max_output_tokens=max_tokens,
             **self._responses_kwargs(temperature, response_format, system),
         )
         return ChatResponse(provider=AIProvider.GPT, model=_model, content=response.output_text)
@@ -120,10 +143,11 @@ class OpenAIService(BaseLLMApiInterface):
     async def _stream_chat_responses(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float], response_format: Optional[dict], system: Optional[str],
+        images: Optional[list[dict]],
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         stream = await self._client.responses.create(
-            model=_model, input=prompt, max_output_tokens=max_tokens,
+            model=_model, input=self._responses_input(prompt, images), max_output_tokens=max_tokens,
             stream=True,
             **self._responses_kwargs(temperature, response_format, system),
         )
@@ -140,10 +164,11 @@ class OpenAIService(BaseLLMApiInterface):
         response_format: Optional[dict] = None,
         strict: bool = True,
         system: Optional[str] = None,
+        images: Optional[list[dict]] = None,
     ) -> ChatResponse:
         if self._enable_web_search:
-            return await self._chat_responses(prompt, model, max_tokens, temperature, response_format, system)
-        return await self._chat_completions(prompt, model, max_tokens, temperature, response_format, strict, system)
+            return await self._chat_responses(prompt, model, max_tokens, temperature, response_format, system, images)
+        return await self._chat_completions(prompt, model, max_tokens, temperature, response_format, strict, system, images)
 
     async def stream_chat(
         self, prompt: str, model: Optional[str], max_tokens: int,
@@ -151,12 +176,13 @@ class OpenAIService(BaseLLMApiInterface):
         response_format: Optional[dict] = None,
         strict: bool = True,
         system: Optional[str] = None,
+        images: Optional[list[dict]] = None,
     ) -> AsyncGenerator[str, None]:
         if self._enable_web_search:
-            async for text in self._stream_chat_responses(prompt, model, max_tokens, temperature, response_format, system):
+            async for text in self._stream_chat_responses(prompt, model, max_tokens, temperature, response_format, system, images):
                 yield text
             return
-        async for text in self._stream_chat_completions(prompt, model, max_tokens, temperature, response_format, strict, system):
+        async for text in self._stream_chat_completions(prompt, model, max_tokens, temperature, response_format, strict, system, images):
             yield text
 
     async def aclose(self) -> None:

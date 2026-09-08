@@ -4,6 +4,7 @@ Gemini(Google) API 클라이언트
 - google-generativeai는 지원 종료(EOL)되어 후속 통합 SDK인 google-genai를 사용한다
 """
 
+import base64
 from typing import AsyncGenerator, Optional
 
 from ...interface import BaseLLMApiInterface
@@ -49,16 +50,24 @@ class GeminiService(BaseLLMApiInterface):
             max_output_tokens=max_tokens, temperature=temperature, **kwargs,
         )
 
+    def _contents(self, prompt: str, images: Optional[list[dict]]):
+        if not images:
+            return prompt
+        parts = [self._genai_types.Part.from_bytes(data=base64.b64decode(img["data"]), mime_type=img["mime_type"])
+                 for img in images]
+        return [prompt] + parts
+
     async def chat(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float] = None,
         response_format: Optional[dict] = None,
         strict: bool = True,
         system: Optional[str] = None,
+        images: Optional[list[dict]] = None,
     ) -> ChatResponse:
         _model = model or self.default_model()
         response = await self._client.aio.models.generate_content(
-            model=_model, contents=prompt,
+            model=_model, contents=self._contents(prompt, images),
             config=self._config(max_tokens, temperature, response_format, system),
         )
         return ChatResponse(provider=AIProvider.GEMINI, model=_model, content=response.text)
@@ -69,10 +78,11 @@ class GeminiService(BaseLLMApiInterface):
         response_format: Optional[dict] = None,
         strict: bool = True,
         system: Optional[str] = None,
+        images: Optional[list[dict]] = None,
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         stream = await self._client.aio.models.generate_content_stream(
-            model=_model, contents=prompt,
+            model=_model, contents=self._contents(prompt, images),
             config=self._config(max_tokens, temperature, response_format, system),
         )
         async for chunk in stream:

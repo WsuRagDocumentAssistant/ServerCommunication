@@ -47,12 +47,24 @@ class ClaudeService(BaseLLMApiInterface):
             }]
         return kwargs
 
+    def _content(self, prompt: str, images: Optional[list[dict]]):
+        if not images:
+            return prompt
+        # Anthropic 권장 순서: 이미지 블록을 먼저, 텍스트를 마지막에 둔다.
+        blocks = [
+            {"type": "image", "source": {"type": "base64", "media_type": img["mime_type"], "data": img["data"]}}
+            for img in images
+        ]
+        blocks.append({"type": "text", "text": prompt})
+        return blocks
+
     async def chat(
         self, prompt: str, model: Optional[str], max_tokens: int,
         temperature: Optional[float] = None,
         response_format: Optional[dict] = None,
         strict: bool = True,
         system: Optional[str] = None,
+        images: Optional[list[dict]] = None,
     ) -> ChatResponse:
         _model = model or self.default_model()
         kwargs = self._extra_kwargs(temperature, response_format)
@@ -60,7 +72,7 @@ class ClaudeService(BaseLLMApiInterface):
             kwargs["system"] = system
         message = await self._client.messages.create(
             model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": self._content(prompt, images)}],
             **kwargs,
         )
         text = "".join(block.text for block in message.content if block.type == "text")
@@ -72,6 +84,7 @@ class ClaudeService(BaseLLMApiInterface):
         response_format: Optional[dict] = None,
         strict: bool = True,
         system: Optional[str] = None,
+        images: Optional[list[dict]] = None,
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         kwargs = self._extra_kwargs(temperature, response_format)
@@ -79,7 +92,7 @@ class ClaudeService(BaseLLMApiInterface):
             kwargs["system"] = system
         async with self._client.messages.stream(
             model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": self._content(prompt, images)}],
             **kwargs,
         ) as stream:
             async for text in stream.text_stream:

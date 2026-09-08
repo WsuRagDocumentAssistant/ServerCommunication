@@ -216,6 +216,31 @@ response = await claude.call({"prompt": "오늘 날짜 기준 최신 환율 알�
   권장하지 않음 — Gemini가 `tools`와 `response_schema`를 함께 받는 걸 지원하지 않는 것으로 알려져 있음
   (실측 미검증)
 
+#### 이미지 입력 (`images`)
+
+문서에서 뽑은 이미지를 모델에게 설명시키는 등, 텍스트 프롬프트에 이미지를 함께 실어 보낼 때 씁니다.
+GPT/Claude/Gemini/로컬 LLM 넷 다 지원합니다(로컬은 모델이 비전을 지원해야 실제로 동작).
+
+```python
+image = {"mime_type": "image/png", "data": "<base64 인코딩된 이미지>"}
+response = await channel.call(
+    {"prompt": "이 그림을 설명해줘", "images": [image]},
+    stream=False,
+)
+```
+
+- `images`는 `[{"mime_type": ..., "data": "<base64>"}, ...]` 형태의 **순수 dict 리스트**로 넘김 — provider별
+  이미지 콘텐츠 블록으로 감싸지기 전의 중립 표현. 여러 장도 가능(한 번에 한 장만 보내도 무방)
+- 각 서비스가 provider별 형식으로 변환함 — GPT는 `{"type": "image_url", "image_url": {"url": "data:...;base64,..."}}`
+  (Responses API 경로에서는 `input_image`), Claude는 `{"type": "image", "source": {"type": "base64", ...}}`,
+  Gemini는 `Part.from_bytes(...)`
+- **크기 제한/포맷 검증을 라이브러리가 하지 않습니다** — base64 데이터를 그대로 API에 전달하고, provider가
+  거부하면 그 예외가 그대로 올라옵니다(자르거나 리사이즈하지 않음). Claude는 `media_type`이
+  `image/jpeg`|`image/png`|`image/gif`|`image/webp` 넷만 허용하니, 그 외 포맷(예: bmp)은 호출 전에
+  변환해서 넘겨야 함
+- **로컬 LLM이 비전을 지원하지 않는 경우**: 조용히 무시되지 않고, provider가 반환하는 에러가 예외로
+  그대로 올라옵니다(다른 provider로 재시도하거나 실패를 감지할 수 있도록)
+
 #### 구조화 출력 (`response_format`, `strict`)
 
 프롬프트로 "JSON으로 답해"라고만 요구하면 모델이 코드펜스나 설명을 앞뒤에 붙여서 파싱이 깨질 수 있습니다.
@@ -501,3 +526,12 @@ pip 패키지(`ai-rag-comm`)로 배포 가능하도록 전환함:
 `output_text`, 스트리밍은 `chunk.choices[0].delta.content` 대신 `response.output_text.delta` 타입
 이벤트의 `.delta`를 씀. `response_format`은 이 경로에서 지원하지 않고(포맷 파라미터 자체가 다름) 경고
 후 무시. `LocalLLMChannel`은 `enable_web_search`를 받지 않아 영향 없음(KServe/vLLM엔 해당 기능이 없음)
+
+**이미지 입력(`images`) 추가**: 문서에서 뽑은 이미지를 모델이 설명하게 하는 용도(질의 시가 아니라 색인
+단계의 배치성 호출)로, `chat()`/`stream_chat()`/`RestChannel`/`LocalLLMChannel`에 `images` 파라미터를
+추가함. `[{"mime_type": ..., "data": "<base64>"}, ...]` 형태의 provider 중립 표현을 받아서 각 서비스가
+자기 형식으로 변환함 — GPT는 `image_url`(Responses API 경로는 `input_image`), Claude는
+`{"type": "image", "source": {"type": "base64", ...}}`(Anthropic 컨벤션대로 텍스트보다 이미지 블록을
+먼저 둠), Gemini는 `Part.from_bytes(...)`. 크기 제한이나 포맷 검증은 라이브러리가 하지 않고 provider에게
+그대로 맡김 — 로컬 LLM이 비전을 지원하지 않는 경우를 포함해 provider가 거부하면 그 예외가 조용히
+묻히지 않고 그대로 올라옴(호출부가 실패를 감지해서 재시도하거나 색인을 멈출 수 있도록).
