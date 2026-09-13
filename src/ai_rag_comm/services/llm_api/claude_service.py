@@ -47,13 +47,21 @@ class ClaudeService(BaseLLMApiInterface):
             }]
         return kwargs
 
-    def _content(self, prompt: str, images: Optional[list[dict]]):
-        if not images:
+    def _content(self, prompt: str, images: Optional[list[dict]], documents: Optional[list[dict]]):
+        if not images and not documents:
             return prompt
-        # Anthropic 권장 순서: 이미지 블록을 먼저, 텍스트를 마지막에 둔다.
+        # Anthropic 권장 순서: 문서/이미지 블록을 먼저, 텍스트를 마지막에 둔다.
         blocks = [
+            {
+                "type": "document",
+                "source": {"type": "base64", "media_type": doc["mime_type"], "data": doc["data"]},
+                **({"title": doc["name"]} if doc.get("name") else {}),
+            }
+            for doc in (documents or [])
+        ]
+        blocks += [
             {"type": "image", "source": {"type": "base64", "media_type": img["mime_type"], "data": img["data"]}}
-            for img in images
+            for img in (images or [])
         ]
         blocks.append({"type": "text", "text": prompt})
         return blocks
@@ -65,6 +73,7 @@ class ClaudeService(BaseLLMApiInterface):
         strict: bool = True,
         system: Optional[str] = None,
         images: Optional[list[dict]] = None,
+        documents: Optional[list[dict]] = None,
     ) -> ChatResponse:
         _model = model or self.default_model()
         kwargs = self._extra_kwargs(temperature, response_format)
@@ -72,7 +81,7 @@ class ClaudeService(BaseLLMApiInterface):
             kwargs["system"] = system
         message = await self._client.messages.create(
             model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": self._content(prompt, images)}],
+            messages=[{"role": "user", "content": self._content(prompt, images, documents)}],
             **kwargs,
         )
         text = "".join(block.text for block in message.content if block.type == "text")
@@ -85,6 +94,7 @@ class ClaudeService(BaseLLMApiInterface):
         strict: bool = True,
         system: Optional[str] = None,
         images: Optional[list[dict]] = None,
+        documents: Optional[list[dict]] = None,
     ) -> AsyncGenerator[str, None]:
         _model = model or self.default_model()
         kwargs = self._extra_kwargs(temperature, response_format)
@@ -92,7 +102,7 @@ class ClaudeService(BaseLLMApiInterface):
             kwargs["system"] = system
         async with self._client.messages.stream(
             model=_model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": self._content(prompt, images)}],
+            messages=[{"role": "user", "content": self._content(prompt, images, documents)}],
             **kwargs,
         ) as stream:
             async for text in stream.text_stream:

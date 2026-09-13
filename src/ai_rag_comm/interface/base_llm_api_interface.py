@@ -26,6 +26,12 @@ class BaseLLMApiInterface(ABC):
     Gemini inline_data)으로 감싸지기 전의 중립 표현이다. 크기 제한이나 형식 검증은
     라이브러리가 하지 않는다 — 그대로 API에 보내고, provider가 거부하면 그 예외가
     그대로 올라온다(로컬 LLM이 비전을 지원하지 않을 때도 마찬가지 — 조용히 무시되지 않음).
+
+    documents는 [{"mime_type": "application/pdf", "data": "<base64>", "name": "..."}, ...]
+    형태의 순수 dict 리스트다(name은 선택). images와 규칙이 동일하다 — provider별
+    문서 콘텐츠 블록(OpenAI file / Claude document / Gemini inline_data — Gemini는
+    PDF도 이미지와 같은 경로로 받으므로 images와 동일하게 처리됨)으로 감싸지고,
+    지원하지 않는 provider는 조용히 무시하지 않고 그 예외가 그대로 올라온다.
     """
 
     @abstractmethod
@@ -39,6 +45,7 @@ class BaseLLMApiInterface(ABC):
         strict: bool = True,
         system: Optional[str] = None,
         images: Optional[list[dict]] = None,
+        documents: Optional[list[dict]] = None,
     ) -> ChatResponse: ...
 
     @abstractmethod
@@ -49,4 +56,5 @@ class BaseLLMApiInterface(ABC):
         strict: bool = True,
         system: Optional[str] = None,
         images: Optional[list[dict]] = None,
+        documents: Optional[list[dict]] = None,
     ) -> AsyncGenerator[str, None]: ...

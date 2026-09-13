@@ -52,11 +52,12 @@ class LocalLLMChannel(BaseChannelInterface):
         strict = payload.get("strict", True)
         system = payload.get("system")
         images = payload.get("images")
+        documents = payload.get("documents")
 
         if stream:
-            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format, strict, system, images)
+            return self._client.stream_chat(prompt, model, max_tokens, temperature, response_format, strict, system, images, documents)
 
-        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format, strict, system, images)
+        response = await self._client.chat(prompt, model, max_tokens, temperature, response_format, strict, system, images, documents)
         return response.content
 
     async def aclose(self) -> None:

@@ -241,6 +241,34 @@ response = await channel.call(
 - **로컬 LLM이 비전을 지원하지 않는 경우**: 조용히 무시되지 않고, provider가 반환하는 에러가 예외로
   그대로 올라옵니다(다른 provider로 재시도하거나 실패를 감지할 수 있도록)
 
+#### 문서(PDF) 입력 (`documents`)
+
+`images`와 규칙이 완전히 동일한, PDF 전용 입력입니다. `images`와 함께 써도 되고, `response_format`/
+`enable_web_search`와 같이 써도 됩니다.
+
+```python
+document = {"mime_type": "application/pdf", "data": "<base64 인코딩된 PDF>", "name": "운영규정.pdf"}  # name은 선택
+response = await channel.call(
+    {"prompt": "제1조 내용을 인용해줘", "documents": [document]},
+    stream=False,
+)
+```
+
+- `documents`는 `[{"mime_type": "application/pdf", "data": "<base64>", "name": "..."}, ...]` 형태 —
+  `name`은 선택(없으면 `"document.pdf"`로 채워짐, GPT/Responses API 쪽 `filename`이 필수 필드라서)
+- 각 서비스가 provider별 형식으로 변환함 — GPT는 `{"type": "file", "file": {"filename": ..., "file_data": "data:...;base64,..."}}`
+  (Responses API 경로에서는 `input_file`), Claude는 `{"type": "document", "source": {"type": "base64",
+  "media_type": "application/pdf", ...}, "title": name}`, Gemini는 `images`와 동일하게 `Part.from_bytes(...)`로
+  처리됨(Gemini는 PDF도 이미지와 같은 경로로 받아서 별도 변환이 없음)
+- **Claude는 `media_type`이 `application/pdf` 하나만 허용** — PDF 외 문서 형식은 지원하지 않음
+- 크기 제한/포맷 검증은 `images`와 마찬가지로 라이브러리가 하지 않고, 지원하지 않는 provider나 너무 큰
+  파일은 provider가 반환하는 에러가 예외로 그대로 올라옵니다(조용히 무시되지 않음)
+- **크기 상한 참고**: Claude는 문서 API에 요청당 32MB, 600페이지(200K 컨텍스트 미만 모델은 100페이지)
+  상한이 공식 문서에 명시되어 있음 — 17MB급 PDF는 base64로 변환해도(약 1.33배, ~23MB) 이 상한 안에
+  들어옵니다. GPT/Gemini의 정확한 상한은 이 세션에서 검증된 문서가 없어 확답은 어렵고, 실제 호출로
+  확인하시는 걸 권장합니다(둘 다 대략 20MB 안팎을 안전선으로 보는 게 무난하다는 일반적인 통념은 있지만
+  공식 수치로 확인된 값은 아닙니다)
+
 #### 구조화 출력 (`response_format`, `strict`)
 
 프롬프트로 "JSON으로 답해"라고만 요구하면 모델이 코드펜스나 설명을 앞뒤에 붙여서 파싱이 깨질 수 있습니다.
@@ -535,3 +563,16 @@ pip 패키지(`ai-rag-comm`)로 배포 가능하도록 전환함:
 먼저 둠), Gemini는 `Part.from_bytes(...)`. 크기 제한이나 포맷 검증은 라이브러리가 하지 않고 provider에게
 그대로 맡김 — 로컬 LLM이 비전을 지원하지 않는 경우를 포함해 provider가 거부하면 그 예외가 조용히
 묻히지 않고 그대로 올라옴(호출부가 실패를 감지해서 재시도하거나 색인을 멈출 수 있도록).
+
+**문서(PDF) 입력(`documents`) 추가**: 실측 결과 Gemini만 되고 GPT/Claude는 PDF를 이미지 블록(`images`)에
+욱여넣어서 막혀 있던 것을 확인 — GPT는 `invalid_image_format`, Claude는 `media_type` 검증 실패로 거부.
+`images`와 나란히 `documents` 파라미터를 `chat()`/`stream_chat()`/`RestChannel`/`LocalLLMChannel`에
+추가함. `[{"mime_type": "application/pdf", "data": "<base64>", "name": "..."}, ...]`(`name`은 선택) 형태를
+받아서 GPT는 `{"type": "file", "file": {"filename": ..., "file_data": "data:...;base64,..."}}`(Responses
+API는 `input_file`), Claude는 `{"type": "document", "source": {"type": "base64", "media_type":
+"application/pdf", ...}}`(문서 블록을 이미지 블록보다 먼저 둠), Gemini는 `images`와 동일한
+`Part.from_bytes(...)` 경로를 그대로 재사용(PDF도 이미지와 같은 inline_data 방식이라 별도 변환이 없었음).
+`images`/`documents`를 함께 넣거나 `enable_web_search`/`response_format`과 같이 쓰는 조합까지 실제
+요청 페이로드가 올바르게 구성되는지 확인함(GPT·Claude·Gemini 모두 mock 레벨에서 검증 — 실제 provider
+호출까지는 확인 못함). Claude는 문서 API 상한이 요청당 32MB/600페이지(200K 컨텍스트 미만 모델은
+100페이지)로 공식 문서에 명시되어 있음; GPT/Gemini의 정확한 상한은 확인된 문서가 없어 실측 권장.
