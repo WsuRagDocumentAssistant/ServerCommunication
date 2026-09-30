@@ -48,13 +48,15 @@ src/ai_rag_comm/                 # import 대상 패키지 (import ai_rag_comm)
 │       └── local_llm_channel.py #   로컬 LLM(KServe, OpenAI 호환) 호출
 │
 ├── database/
-│   └── database_service.py      # PostgreSQL 커넥션 풀 (asyncpg 미설치 시 생성 시점에 RuntimeError)
+│   ├── database_service.py        # PostgreSQL 커넥션 풀 (asyncpg 미설치 시 생성 시점에 RuntimeError)
+│   └── oracle_database_service.py # 학교 Oracle DB 커넥션 풀 (oracledb 미설치 시 생성 시점에 RuntimeError)
 │
 ├── interface/                   # 각 통신이 반드시 지켜야 하는 추상 인터페이스
-│   ├── base_channel_interface.py    #   BaseChannelInterface (call 계약)
-│   ├── base_llm_api_interface.py    #   BaseLLMApiInterface
-│   ├── base_database_interface.py   #   BaseDatabaseInterface
-│   └── base_repository_interface.py #   BaseRepositoryInterface
+│   ├── base_channel_interface.py         #   BaseChannelInterface (call 계약)
+│   ├── base_llm_api_interface.py         #   BaseLLMApiInterface
+│   ├── base_database_interface.py        #   BaseDatabaseInterface (Postgres Repository 베이스)
+│   ├── base_oracle_database_interface.py #   BaseOracleDatabaseInterface (위를 상속한 Oracle Repository 베이스)
+│   └── base_repository_interface.py      #   BaseRepositoryInterface
 │
 ├── schemas/                     # 데이터 객체(DTO) 정의
 │   ├── llm_api_schemas.py       #   AIProvider(GPT/CLAUDE/GEMINI), ChatRequest, ChatResponse
@@ -90,7 +92,7 @@ pip install "git+https://github.com/<org>/ai_rag_system.git"
 없이 설치해도 import 자체는 되고, 안 쓰는 provider의 SDK가 없어도 다른 provider 호출에는 영향 없음.
 
 ```bash
-pip install -e "/path/to/ai_rag_system[claude,gemini,db]"
+pip install -e "/path/to/ai_rag_system[claude,gemini,db,oracle]"
 ```
 
 | extra | 설치되는 패키지 | 없으면 |
@@ -98,6 +100,7 @@ pip install -e "/path/to/ai_rag_system[claude,gemini,db]"
 | `claude` | `anthropic` | `RestChannel(..., AIProvider.CLAUDE)` 생성 시 `RuntimeError` |
 | `gemini` | `google-genai` | `RestChannel(..., AIProvider.GEMINI)` 생성 시 `RuntimeError` |
 | `db` | `asyncpg` | `DatabaseService` 생성 시 `RuntimeError` (`Controller.init()`은 `db=None`으로 계속 진행) |
+| `oracle` | `oracledb` | `OracleDatabaseService` 생성 시 `RuntimeError` (`Controller.init()`은 `school_db=None`으로 계속 진행) |
 
 설치하면 `import ai_rag_comm`으로 바로 쓸 수 있습니다. `config.json`/`.env`는 이 저장소 루트에 있는 것을
 그대로 쓰거나, 설치한 쪽 프로젝트 루트에 동일한 형식으로 준비해두면 됩니다 (아래 [환경 설정](#환경-설정) 참고).
@@ -365,6 +368,44 @@ rows = await services["db"].fetch("SELECT * FROM table WHERE id = $1", 1)
 - `ai_rag_comm/database/database_service.py` — `fetch`/`fetchrow`/`fetchval`/`execute`/`executemany`
 - DB를 쓰지 않는다면 `pip install ai-rag-comm`(⁠`[db]` extra 없이)만으로도 LLM API/Local LLM 호출은 그대로 동작함
 
+### 4. 학교 Oracle DB 호출
+
+`.env`의 `SCHOOL_SYNC_ENABLED="true"`면 `Controller.init()`이 학교 Oracle DB(19c) 커넥션 풀을 열고
+`services["school_db"]`(`OracleDatabaseService`)로 노출합니다. `false`거나 접속에 실패하면 `None`
+(경고 로그만 남기고 계속 진행 — Postgres와 같은 방식). python-oracledb **thin 모드**라 Oracle Client
+설치가 필요 없습니다.
+
+Repository는 `BaseDatabaseInterface`를 상속한 `BaseOracleDatabaseInterface`를 상속해서 만듭니다.
+`_fetch_one`/`_fetch_many`/`_fetch_val`/`_execute`/`_execute_many`/`_transaction` 헬퍼를 그대로 씁니다.
+
+```python
+from ai_rag_comm import BaseOracleDatabaseInterface
+
+class CourseRepository(BaseOracleDatabaseInterface):
+    async def select_many(self, **kwargs) -> list[dict]:
+        return await self._fetch_many(
+            f"SELECT * FROM {self._qualify('AIKEY_COURSE_V')} WHERE YEAR = :year",  # 컬럼명은 예시
+            {"year": kwargs["year"]},
+        )
+    # select_one / insert / update / delete 도 구현해야 함 (BaseRepositoryInterface 추상 메서드)
+
+repo = CourseRepository(services["school_db"])
+```
+
+- **바인드는 Oracle 문법** — 위치 `:1, :2`(인자를 순서대로) 또는 이름 `:name`(dict 하나를 넘김). Postgres의 `$1`은 안 됨
+- 조회 결과는 dict, **키는 Oracle 컬럼명 그대로(대문자)** — 예: `row["COURSE_NM"]`
+- 접속 계정(`SCHOOL_ORACLE_USER`)과 뷰 소유 스키마(`SCHOOL_ORACLE_OWNER`, 예: `WS_VIEW`)가 달라서, 테이블/뷰는
+  `self._qualify("이름")`으로 `WS_VIEW.이름`처럼 소유 스키마를 붙여 참조함. 식별자는 바인드가 안 돼서 SQL에
+  직접 들어가므로 `_qualify()`에는 코드 상수만 넘길 것(사용자 입력 금지)
+- `execute`/`executemany`는 실행 후 **커밋까지** 수행하고, `execute`는 영향받은 row 수를 반환. 여러 문장을 묶으려면
+  `async with self._transaction() as conn:`(정상 종료 시 커밋, 예외 시 롤백)
+- 현재 `WS_VIEW`에서 보이는 뷰: `AIKEY_COURSE_V`, `AIKEY_SCHEDULE_V`, `AIKEY_SUBJECT_V`, `AIKEY_SUGANG_V`, `AIKEY_USER_V`
+- **Windows에서 로컬 실행 시 주의**: python-oracledb의 async 드라이버가 Windows 기본 이벤트 루프(Proactor)와
+  호환되지 않아 접속이 되지 않음(`Expected bytes, got bytearray`). `asyncio.run()` 전에
+  `asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())`를 호출할 것
+  (`examples/basic_usage.py`에 이미 반영). K8s/Linux 배포 환경은 해당 없음. 설정을 빠뜨려도 멈추지는 않고
+  약 35초 뒤 접속 실패로 처리되어 `school_db=None`으로 넘어감
+
 두 채널 모두 커스텀 데코레이터/레지스트리 없이 **평범한 클래스를 직접 인스턴스화**해서 씁니다
 (예전 `@Channel(Transport.REST)` 같은 데코레이터 방식은 제거됨).
 
@@ -419,9 +460,20 @@ ANTHROPIC_API_KEY=sk-ant-...
 GEMINI_API_KEY=...
 DB_USER=raguser
 DB_PASSWORD=...
+
+# 학교 Oracle DB (K8s: rag-system/rag-app-secret)
+SCHOOL_SYNC_ENABLED="true"
+SCHOOL_ORACLE_HOST=...
+SCHOOL_ORACLE_PORT="1521"
+SCHOOL_ORACLE_SERVICE_NAME=...
+SCHOOL_ORACLE_USER=...
+SCHOOL_ORACLE_PASSWORD=...
+SCHOOL_ORACLE_OWNER=...        # 뷰 소유 스키마 (_qualify()가 붙이는 접두어)
 ```
 
 쓰지 않는 provider의 키는 빈 값으로 둬도 됩니다 — 그 provider를 실제로 호출하기 전까지는 참조되지 않습니다.
+학교 Oracle 커넥션 풀 크기는 기본 1~4이고, 바꾸려면 `config.json`에 `"school_oracle": {"pool_min": 1, "pool_max": 4}`를
+추가하면 됩니다(접속 정보는 전부 `.env`에서 읽음).
 
 ---
 
@@ -576,3 +628,14 @@ API는 `input_file`), Claude는 `{"type": "document", "source": {"type": "base64
 요청 페이로드가 올바르게 구성되는지 확인함(GPT·Claude·Gemini 모두 mock 레벨에서 검증 — 실제 provider
 호출까지는 확인 못함). Claude는 문서 API 상한이 요청당 32MB/600페이지(200K 컨텍스트 미만 모델은
 100페이지)로 공식 문서에 명시되어 있음; GPT/Gemini의 정확한 상한은 확인된 문서가 없어 실측 권장.
+
+**학교 Oracle DB 연결 추가**: 학교 DB(Oracle 19c)용 `OracleDatabaseService`와, 기존 `BaseDatabaseInterface`를
+상속한 `BaseOracleDatabaseInterface`를 추가함. `OracleDatabaseService`가 `DatabaseService`와 같은 메서드
+(`fetch`/`fetchrow`/`fetchval`/`execute`/`executemany`/`transaction`)를 제공해서 부모의 쿼리 헬퍼를 그대로
+재사용하고, Oracle에 맞게 결과를 dict로 변환, 바인드를 `:1`/`:name` 문법으로 받고, 실행 후 커밋하도록 함.
+접속 계정과 뷰 소유 스키마가 달라서 `_qualify()`로 `WS_VIEW.뷰이름`을 만들어 쓰도록 함. 접속 정보는 전부
+`.env`의 `SCHOOL_ORACLE_*`에서 읽고(`SCHOOL_SYNC_ENABLED`로 on/off), `Controller`가 `services["school_db"]`로
+노출함. 드라이버는 `python-oracledb` thin 모드(`[oracle]` extra) — Oracle Client 설치 불필요. 실제 학교 DB에
+접속해서 `SELECT 1 FROM DUAL`, 위치/이름 바인드, `WS_VIEW` 뷰 조회까지 확인함. Windows 기본 이벤트 루프에서는
+드라이버가 접속 중 멈추는 문제가 있어 `examples/basic_usage.py`에 Selector 루프 설정을 넣고, 접속/정리에
+시간 제한을 둬서 멈추지 않고 실패로 넘어가게 함.

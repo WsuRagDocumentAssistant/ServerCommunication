@@ -7,6 +7,7 @@ RestChannel/SocketChannel/DatabaseService를 코드로 직접 호출한다.
 
 import asyncio
 import logging
+import sys
 
 from ai_rag_comm import (
     Controller,
@@ -45,9 +46,16 @@ async def main() -> None:
 
         rows = await services["db"].fetch("SELECT 1")
         logger.info(f"[DB] {rows}")
+
+        if services["school_db"] is not None:
+            version = await services["school_db"].fetchval("SELECT banner FROM v$version WHERE ROWNUM = 1")
+            logger.info(f"[School Oracle] {version}")
     finally:
         await controller.close()
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        # python-oracledb async 드라이버가 Windows 기본 Proactor 루프와 호환되지 않음
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())

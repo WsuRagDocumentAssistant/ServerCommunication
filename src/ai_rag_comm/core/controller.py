@@ -7,7 +7,7 @@ controller.py
 import logging
 from typing import Optional
 
-from ..database import DatabaseService
+from ..database import DatabaseService, OracleDatabaseService
 from ..helpers import Config
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ class Controller:
 
         # ── 인프라 계층 ────────────────────────
         self.db: Optional[DatabaseService] = None
+        self.school_db: Optional[OracleDatabaseService] = None
 
     # ─────────────────────────────────────────
     # Init
@@ -38,6 +39,11 @@ class Controller:
 
     async def _init_infra(self) -> None:
         logger.info("[Controller] 인프라 계층 초기화 중...")
+        await self._init_postgres()
+        await self._init_school_oracle()
+        logger.info("[Controller] 인프라 계층 초기화 완료")
+
+    async def _init_postgres(self) -> None:
         db = self.config.database
 
         try:
@@ -62,7 +68,32 @@ class Controller:
         else:
             logger.info("[Controller] DB auto_connect=false, 연결 건너뜀")
 
-        logger.info("[Controller] 인프라 계층 초기화 완료")
+    async def _init_school_oracle(self) -> None:
+        oracle = self.config.school_oracle
+        if not oracle.enabled:
+            logger.info("[Controller] SCHOOL_SYNC_ENABLED=false, 학교 Oracle DB 연결 건너뜀")
+            return
+
+        try:
+            school_db = OracleDatabaseService(
+                host=oracle.host,
+                port=oracle.port,
+                service_name=oracle.service_name,
+                user=oracle.user,
+                password=oracle.password,
+                owner=oracle.owner or None,
+                min_size=oracle.pool_min,
+                max_size=oracle.pool_max,
+            )
+        except RuntimeError as e:
+            logger.warning(f"[Controller] Oracle 드라이버 없음, 학교 DB 없이 진행: {e}")
+            return
+
+        try:
+            await school_db.init()
+            self.school_db = school_db
+        except Exception as e:
+            logger.warning(f"[Controller] 학교 Oracle DB 초기연결 실패: {e}")
 
     # ─────────────────────────────────────────
     # 서비스 노출
@@ -70,6 +101,7 @@ class Controller:
     def get_services(self) -> dict:
         return {
             "db": self.db,
+            "school_db": self.school_db,
             "llm_api_config": self.config.llm_api,
             "local_llm_config": self.config.local_llm,
         }
@@ -86,6 +118,8 @@ class Controller:
 
         if self.db:
             await self.db.close()
+        if self.school_db:
+            await self.school_db.close()
 
         logger.info("=" * 50)
         logger.info("  컨트롤러 종료 완료 ✓")

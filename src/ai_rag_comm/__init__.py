@@ -6,14 +6,16 @@ LLM API(GPT/Claude/Gemini) 호출 / 로컬 LLM 호출 / DB 호출 3가지를 제
 
 from .core import Controller
 from .services import RestChannel, LocalLLMChannel, OpenAIService, ClaudeService, GeminiService
-from .database import DatabaseService
+from .database import DatabaseService, OracleDatabaseService
+from .interface import BaseDatabaseInterface, BaseOracleDatabaseInterface
 from .helpers import load_config, setup_logging, Config
 from .schemas import AIProvider, ChatRequest, ChatResponse
 
 __all__ = [
     "Controller",
     "RestChannel", "LocalLLMChannel", "OpenAIService", "ClaudeService", "GeminiService",
-    "DatabaseService",
+    "DatabaseService", "OracleDatabaseService",
+    "BaseDatabaseInterface", "BaseOracleDatabaseInterface",
     "load_config", "setup_logging", "Config",
     "AIProvider", "ChatRequest", "ChatResponse",
 ]

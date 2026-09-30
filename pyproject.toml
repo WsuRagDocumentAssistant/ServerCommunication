@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 db = ["asyncpg>=0.29"]
+oracle = ["oracledb>=2.0"]
 claude = ["anthropic>=0.40"]
 gemini = ["google-genai>=1.0"]
 dev = [

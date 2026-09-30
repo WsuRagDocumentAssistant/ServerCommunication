@@ -33,6 +33,19 @@ class DatabaseConfig:
 
 
 @dataclass
+class SchoolOracleConfig:
+    enabled: bool
+    host: str
+    port: int
+    service_name: str
+    user: str
+    password: str
+    owner: str
+    pool_min: int
+    pool_max: int
+
+
+@dataclass
 class LocalLLMConfig:
     base_url: str
     model: str
@@ -53,6 +66,7 @@ class LLMApiConfig:
 class Config:
     server: ServerConfig
     database: DatabaseConfig
+    school_oracle: SchoolOracleConfig
     local_llm: LocalLLMConfig
     llm_api: LLMApiConfig
 
@@ -67,6 +81,7 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
 
     s = raw["server"]
     db = raw["database"]
+    oracle = raw.get("school_oracle", {})
     local_llm = raw["local_llm"]
     llm_api = raw["llm_api"]
 
@@ -83,6 +98,17 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
             pool_min=db["pool_min"],
             pool_max=db["pool_max"],
             auto_connect=db["auto_connect"],
+        ),
+        school_oracle=SchoolOracleConfig(
+            enabled=os.environ.get("SCHOOL_SYNC_ENABLED", "false").strip().lower() == "true",
+            host=os.environ.get("SCHOOL_ORACLE_HOST", ""),
+            port=int(os.environ.get("SCHOOL_ORACLE_PORT", "1521")),
+            service_name=os.environ.get("SCHOOL_ORACLE_SERVICE_NAME", ""),
+            user=os.environ.get("SCHOOL_ORACLE_USER", ""),
+            password=os.environ.get("SCHOOL_ORACLE_PASSWORD", ""),
+            owner=os.environ.get("SCHOOL_ORACLE_OWNER", ""),
+            pool_min=oracle.get("pool_min", 1),
+            pool_max=oracle.get("pool_max", 4),
         ),
         local_llm=LocalLLMConfig(
             base_url=local_llm["base_url"],
