@@ -71,6 +71,23 @@ class Config:
     llm_api: LLMApiConfig
 
 
+def _env(name: str, default: str = "") -> str:
+    """환경변수 값. 앞뒤 공백과 감싼 따옴표를 벗긴다.
+
+    .env 는 python-dotenv 가 SCHOOL_SYNC_ENABLED="true" 의 따옴표를 벗겨 주지만, 같은 줄을 k8s secret 에
+    옮기면 따옴표까지 값이 된다("\"true\""). 그러면 켜짐 판정도, 호스트·계정 접속도 실패한다.
+    """
+    value = os.environ.get(name, default).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1].strip()
+    return value
+
+
+def _flag(name: str) -> bool:
+    """켜짐/꺼짐 환경변수. true / 1 / yes / on (대소문자 무시)이면 켜짐."""
+    return _env(name, "false").lower() in ("true", "1", "yes", "on")
+
+
 def load_config(root: Optional[Union[str, Path]] = None) -> Config:
     root = Path(root or os.environ.get("APP_ROOT") or Path.cwd())
 
@@ -93,20 +110,20 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
             host=db["host"],
             port=db["port"],
             name=db["name"],
-            user=os.environ.get("DB_USER", ""),
-            password=os.environ.get("DB_PASSWORD", ""),
+            user=_env("DB_USER"),
+            password=_env("DB_PASSWORD"),
             pool_min=db["pool_min"],
             pool_max=db["pool_max"],
             auto_connect=db["auto_connect"],
         ),
         school_oracle=SchoolOracleConfig(
-            enabled=os.environ.get("SCHOOL_SYNC_ENABLED", "false").strip().lower() == "true",
-            host=os.environ.get("SCHOOL_ORACLE_HOST", ""),
-            port=int(os.environ.get("SCHOOL_ORACLE_PORT", "1521")),
-            service_name=os.environ.get("SCHOOL_ORACLE_SERVICE_NAME", ""),
-            user=os.environ.get("SCHOOL_ORACLE_USER", ""),
-            password=os.environ.get("SCHOOL_ORACLE_PASSWORD", ""),
-            owner=os.environ.get("SCHOOL_ORACLE_OWNER", ""),
+            enabled=_flag("SCHOOL_SYNC_ENABLED"),
+            host=_env("SCHOOL_ORACLE_HOST"),
+            port=int(_env("SCHOOL_ORACLE_PORT", "1521") or "1521"),
+            service_name=_env("SCHOOL_ORACLE_SERVICE_NAME"),
+            user=_env("SCHOOL_ORACLE_USER"),
+            password=_env("SCHOOL_ORACLE_PASSWORD"),
+            owner=_env("SCHOOL_ORACLE_OWNER"),
             pool_min=oracle.get("pool_min", 1),
             pool_max=oracle.get("pool_max", 4),
         ),
@@ -117,9 +134,9 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
             headers=local_llm.get("headers", {}),
         ),
         llm_api=LLMApiConfig(
-            openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
-            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-            gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
+            openai_api_key=_env("OPENAI_API_KEY"),
+            anthropic_api_key=_env("ANTHROPIC_API_KEY"),
+            gemini_api_key=_env("GEMINI_API_KEY"),
             default_models=llm_api["default_models"],
             timeout=llm_api.get("timeout", 60.0),
         ),
