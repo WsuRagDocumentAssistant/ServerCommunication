@@ -342,7 +342,7 @@ from ai_rag_comm import LocalLLMChannel
 channel = LocalLLMChannel(
     local_llm_config.base_url,   # 예: http://117.16.166.22/v1
     local_llm_config.model,      # 예: gemma-4-12B-it
-    local_llm_config.headers,    # 예: {"x-user-id": "npark-01"}
+    local_llm_config.headers,    # 예: {"x-user-id": "<LOCAL_LLM_HEADERS 환경변수로>"}
     local_llm_config.timeout,
 )
 response = await channel.call({"prompt": "프롬프트", "temperature": 0.0}, stream=False)
@@ -427,7 +427,7 @@ repo = CourseRepository(services["school_db"])
     "base_url": "http://117.16.166.22/v1",
     "model": "gemma-4-12B-it",
     "timeout": 60.0,
-    "headers": { "x-user-id": "npark-01" }
+    "headers": { "x-user-id": "<LOCAL_LLM_HEADERS 환경변수로>" }
   },
   "database": {
     "host": "rag-postgres.rag-system.svc.cluster.local",

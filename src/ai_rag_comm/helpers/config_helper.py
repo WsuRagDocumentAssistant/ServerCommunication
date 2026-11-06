@@ -88,6 +88,25 @@ def _flag(name: str) -> bool:
     return _env(name, "false").lower() in ("true", "1", "yes", "on")
 
 
+def _local_llm_headers(local_llm: dict) -> dict:
+    """로컬 LLM 요청 헤더. 인증 헤더(x-user-id 등)라 config.json 이 아니라 환경변수로 받는다.
+
+    LOCAL_LLM_HEADERS 에 JSON 객체로 넣는다(예: {"x-user-id": "..."}, k8s secret).
+    예전에는 config.json 에 값이 들어 있어 저장소를 본 사람이면 누구나 그 값을 알 수 있었다.
+    환경변수가 없으면 config.json 의 headers 를 쓴다(로컬 개발용 — 저장소에는 비워 둔다).
+    """
+    raw = _env("LOCAL_LLM_HEADERS")
+    if raw:
+        try:
+            value = json.loads(raw)
+        except ValueError as e:
+            raise ValueError("LOCAL_LLM_HEADERS 는 JSON 객체여야 합니다") from e
+        if not isinstance(value, dict):
+            raise ValueError("LOCAL_LLM_HEADERS 는 JSON 객체여야 합니다")
+        return {str(k): str(v) for k, v in value.items()}
+    return local_llm.get("headers") or {}
+
+
 def load_config(root: Optional[Union[str, Path]] = None) -> Config:
     root = Path(root or os.environ.get("APP_ROOT") or Path.cwd())
 
@@ -131,7 +150,7 @@ def load_config(root: Optional[Union[str, Path]] = None) -> Config:
             base_url=local_llm["base_url"],
             model=local_llm["model"],
             timeout=local_llm["timeout"],
-            headers=local_llm.get("headers", {}),
+            headers=_local_llm_headers(local_llm),
         ),
         llm_api=LLMApiConfig(
             openai_api_key=_env("OPENAI_API_KEY"),
